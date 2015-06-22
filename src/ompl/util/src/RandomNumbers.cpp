@@ -348,7 +348,7 @@ void ompl::RNG::uniformInBall(double r, unsigned int n, double value[])
 }
 
 #if OMPL_HAVE_EIGEN3
-void ompl::RNG::uniformProlateHyperspheroidSurface(const ProlateHyperspheroidPtr &phsPtr, unsigned int n, double value[])
+void ompl::RNG::uniformProlateHyperspheroidSurface(const boost::shared_ptr<const ProlateHyperspheroid>  &phsPtr, unsigned int n, double value[])
 {
     // Variables
     // The spherical point as a std::vector
@@ -361,7 +361,7 @@ void ompl::RNG::uniformProlateHyperspheroidSurface(const ProlateHyperspheroidPtr
     phsPtr->transform(n, &sphere[0], value);
 }
 
-void ompl::RNG::uniformProlateHyperspheroid(const ProlateHyperspheroidPtr &phsPtr, unsigned int n, double value[])
+void ompl::RNG::uniformProlateHyperspheroid(const boost::shared_ptr<const ProlateHyperspheroid>  &phsPtr, unsigned int n, double value[])
 {
     // Variables
     // The spherical point as a std::vector

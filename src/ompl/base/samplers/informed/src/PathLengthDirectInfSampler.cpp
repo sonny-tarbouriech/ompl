@@ -38,29 +38,32 @@
 #include "ompl/util/Exception.h"
 #include "ompl/base/OptimizationObjective.h"
 #include "ompl/base/goals/GoalState.h"
+#include "ompl/base/goals/GoalStates.h"
 #include "ompl/base/StateSpace.h"
 #include "ompl/base/spaces/RealVectorStateSpace.h"
 
 // For boost::make_shared
 #include <boost/make_shared.hpp>
+// For std::vector
+#include <vector>
 
 namespace ompl
 {
     namespace base
     {
+        /////////////////////////////////////////////////////////////////////////////////////////////
+        //Public functions:
+
         // The direct ellipsoid sampling class for path-length:
         PathLengthDirectInfSampler::PathLengthDirectInfSampler(const ProblemDefinitionPtr probDefn, unsigned int maxNumberCalls)
           : InformedSampler(probDefn, maxNumberCalls),
+            numGoals_(0u), // Purposeful gibberish
             informedIdx_(0u),
             uninformedIdx_(0u)
         {
             // Variables
-            // The foci of the ellipse as State* s
-            State *startFocusState;
-            State *goalFocusState;
-            // The foci of the ellipse as std::vectors
+            // The start of the PHS as a std::vectors
             std::vector<double> startFocusVector;
-            std::vector<double> goalFocusVector;
 
             // Sanity check the problem.
             if (probDefn_->getStartStateCount() != 1u)
@@ -68,12 +71,22 @@ namespace ompl
                 throw Exception("PathLengthDirectInfSampler: The direct path-length informed sampler currently only supports 1 start state.");
             }
 
-            if (probDefn_->getGoal()->hasType(GOAL_STATE) == false)
+            if (probDefn_->getGoal()->hasType(GOAL_STATE) == false && probDefn_->getGoal()->hasType(GOAL_STATES) == false)
             {
-                throw Exception("PathLengthDirectInfSampler: The direct path-length informed sampler currently only supports goals that can be cast to goal states.");
+                throw Exception("PathLengthDirectInfSampler: The direct path-length informed sampler currently only supports goals that can be cast to goal state(s).");
             }
 
             /// \todo We don't check for the cost-to-go heuristic in the optimization objective, as this direct sampling is for Euclidean distance.
+
+            // Store the number of goals:
+            if (probDefn_->getGoal()->hasType(GOAL_STATES) == true)
+            {
+                numGoals_ = probDefn_->getGoal()->as<GoalStates>()->getStateCount();
+            }
+            else
+            {
+                numGoals_ = 1u;
+            }
 
             // Check that the provided statespace is compatible and extract the necessary indices.
             // The statespace must either be R^n or SE(2) or SE(3)
@@ -134,7 +147,6 @@ namespace ompl
                 }
             }
 
-
             // Create a sampler for the whole space that we can use if we have no information
             baseSampler_ = InformedSampler::space_->allocDefaultStateSampler();
 
@@ -142,10 +154,6 @@ namespace ompl
             if (InformedSampler::space_->isCompound() == false)
             {
                 // It is not.
-
-                // Store the foci
-                startFocusState = probDefn_->getStartState(0u);
-                goalFocusState = probDefn_->getGoal()->as<GoalState>()->getState();
 
                 // The informed subspace is the full space
                 informedSubSpace_ = InformedSampler::space_;
@@ -156,9 +164,7 @@ namespace ompl
             }
             else
             {
-                // Store the foci
-                startFocusState = probDefn_->getStartState(0u)->as<CompoundState>()->components[informedIdx_];
-                goalFocusState = probDefn_->getGoal()->as<GoalState>()->getState()->as<CompoundState>()->components[informedIdx_];
+                // It is
 
                 // Get a pointer to the informed subspace...
                 informedSubSpace_ = InformedSampler::space_->as<CompoundStateSpace>()->getSubspace(informedIdx_);
@@ -170,17 +176,42 @@ namespace ompl
                 uninformedSubSampler_ = uninformedSubSpace_->allocDefaultStateSampler();
             }
 
-            // Now extract the foci of the ellipse
-            informedSubSpace_->copyToReals(startFocusVector, startFocusState);
-            informedSubSpace_->copyToReals(goalFocusVector, goalFocusState);
+            // Store the foci, there's only one start:
+            startFocusVector = getInformedSubstate(probDefn_->getStartState(0u));
 
-            // Create the definition of the PHS
-            phsPtr_ = boost::make_shared<ProlateHyperspheroid>(informedSubSpace_->getDimension(), &startFocusVector[0], &goalFocusVector[0]);
+            // By virtue of the earlier check, we know that the goal is either a state or a set of states. Check
+            if (numGoals_ > 1u)
+            {
+                // The goal is a countable set of goals, create a PHS for each one!
+                for (unsigned int i = 0u; i < numGoals_; ++i)
+                {
+                    // Variable
+                    // The goal as a vector
+                    std::vector<double> goalFocusVector = getInformedSubstate(probDefn_->getGoal()->as<GoalStates>()->getState(i));
+
+                    // Create the definition of the PHS
+                    listPhsPtrs_.push_back(boost::make_shared<ProlateHyperspheroid>(informedSubSpace_->getDimension(), &startFocusVector[0], &goalFocusVector[0]));
+                }
+            }
+            else
+            {
+                // It is not a set of states, so therefore it must be a single state:
+
+                // Variable
+                // The goal as a vector
+                std::vector<double> goalFocusVector = getInformedSubstate(probDefn_->getGoal()->as<GoalState>()->getState());
+
+                // Create the definition of the PHS
+                listPhsPtrs_.push_back(boost::make_shared<ProlateHyperspheroid>(informedSubSpace_->getDimension(), &startFocusVector[0], &goalFocusVector[0]));
+            }
         }
+
+
 
         PathLengthDirectInfSampler::~PathLengthDirectInfSampler()
         {
         }
+
 
 
         bool PathLengthDirectInfSampler::sampleUniform(State *statePtr, const Cost &maxCost)
@@ -236,10 +267,13 @@ namespace ompl
         {
             // Variable
             // The measure of the informed set
-            double informedMeasure;
+            double informedMeasure = 0.0;
 
-            // The informed measure is then the measure of the PHS for the given cost:
-            informedMeasure = phsPtr_->getPhsMeasure(currentCost.value());
+            // The informed measure is then the sum of the measure of the individual PHSs for the given cost:
+            for (std::list<ompl::ProlateHyperspheroidPtr>::const_iterator phsIter = listPhsPtrs_.begin(); phsIter != listPhsPtrs_.end(); ++phsIter)
+            {
+                informedMeasure = informedMeasure + (*phsIter)->getPhsMeasure(currentCost.value());
+            }
 
             // And if the space is compound, further multiplied by the measure of the uniformed subspace
             if (InformedSampler::space_->isCompound() == true)
@@ -253,6 +287,29 @@ namespace ompl
 
 
 
+        Cost PathLengthDirectInfSampler::heuristicSolnCost(const State *statePtr) const
+        {
+            // Variable
+            // The raw data in the state
+            std::vector<double> rawData = getInformedSubstate(statePtr);
+            // The Cost, infinity to start
+            Cost minCost = InformedSampler::opt_->infiniteCost();
+
+            // Iterate over the separate subsets and return the minimum
+            for (std::list<ompl::ProlateHyperspheroidPtr>::const_iterator phsIter = listPhsPtrs_.begin(); phsIter != listPhsPtrs_.end(); ++phsIter)
+            {
+                /** \todo Use a heuristic function for the full solution cost defined in OptimizationObjective or some new Heuristic class once said function is defined. */
+                minCost = InformedSampler::opt_->betterCost(minCost, Cost((*phsIter)->getPathLength(informedSubSpace_->getDimension(), &rawData[0])));
+            }
+
+            return minCost;
+        }
+        /////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+        /////////////////////////////////////////////////////////////////////////////////////////////
+        //Private functions:
         bool PathLengthDirectInfSampler::sampleUniform(State *statePtr, const Cost &maxCost, unsigned int *iters)
         {
             // Variable
@@ -261,7 +318,7 @@ namespace ompl
 
             //Whether we successfully returnes
             // Check if a solution path has been found
-            if (std::isfinite(maxCost.value()) == false)
+            if (InformedSampler::opt_->isFinite(maxCost) == false)
             {
                 // We don't have a solution yet, we sample from our basic sampler instead...
                 baseSampler_->sampleUniform(statePtr);
@@ -274,52 +331,55 @@ namespace ompl
             }
             else // We have a solution
             {
-                // Set the new transverse diameter
-                phsPtr_->setTransverseDiameter(maxCost.value());
+                // Update the definitions of the PHSs
+                updatePhsDefinitions(maxCost);
 
-                // Check whether the problem domain (i.e., StateSpace) or PHS has the smaller measure. Sample the smaller directly and reject from the larger.
-                if (informedSubSpace_->getMeasure() <= phsPtr_->getPhsMeasure())
+                // Sample from the PHSs.
+
+                // When the summed measure is suitably large, it makes more sense to just sample from the entire planning space and keep the sample if it lies in any PHS
+                // Only check this if we have more than 1 goal
+                if (numGoals_ > 1u)
                 {
-                    // The PHS is larger than the subspace, just sample from the subspace directly.
-
-                    // Spend numIters_ iterations trying to find an informed sample:
-                    for (/* Provided iteration counter */; *iters < InformedSampler::numIters_ && foundSample == false; ++(*iters))
+                    // Check if the average measure is greater than half the domain's measure
+                    if (summedMeasure_/static_cast<double>(numGoals_) > 0.5*informedSubSpace_->getMeasure())
                     {
-                        // Variable
-                        // The informed subset of the sample as a vector
-                        std::vector<double> informedVector(informedSubSpace_->getDimension());
-
-                        // Generate a random sample
-                        baseSampler_->sampleUniform(statePtr);
-
-                        // Is there an extra "uninformed" subspace to trim off before comparing to the PHS?
-                        if (InformedSampler::space_->isCompound() == false)
+                        // The measure is large, sample from the entire world and keep if it's in a PHS
+                        while (foundSample == false && *iters < InformedSampler::numIters_)
                         {
-                            // No, space_ == informedSubSpace_
-                            informedSubSpace_->copyToReals(informedVector, statePtr);
+                            // Generate a sample by sampling the boundary and rejecting if it is not in *any* PHS
+                            foundSample = sampleBoundsRejectFunc(statePtr, boost::bind(&PathLengthDirectInfSampler::isInAnyPhs, this, _1), maxCost, iters);
                         }
-                        else
-                        {
-                            // Yes, we need to do some work to extract the subspace
-                            informedSubSpace_->copyToReals(informedVector, statePtr->as<CompoundState>()->components[informedIdx_]);
-                        }
-
-                        // Check if the informed state is in the PHS, if it is we've found a sample
-                        foundSample = phsPtr_->isInPhs(informedSubSpace_->getDimension(), &informedVector[0]);
                     }
                 }
                 else
                 {
-                    // The PHS has a smaller volume than the subspace.
+                    // The measure is suffiently small that we will performed PHS sampling weighted by it's relative measure
 
-                    // Spend numIters_ iterations trying to find an sample that is within the bounds:
-                    for (/* Provided iteration counter */; *iters < InformedSampler::numIters_ && foundSample == false; ++(*iters))
+                    // Due to the possibility of overlap between multiple PHSs, we keep a sample with a probability of 1/K, where K is the number of PHSs the sample is in.
+                    while (foundSample == false && *iters < InformedSampler::numIters_)
                     {
-                        // Sample the PHS irrespective of boundary
-                        sampleUniformIgnoreBounds(statePtr, maxCost);
+                        // Variable
+                        // The random PHS in use for this sample.
+                        ProlateHyperspheroidCPtr phsCPtr = randomPhsPtr(maxCost);
 
-                        // Check if in the problem:
-                        foundSample = InformedSampler::space_->satisfiesBounds(statePtr);
+                        // Check if this PHS is too large to sample directly
+                        if (phsCPtr->getPhsMeasure() > informedSubSpace_->getMeasure())
+                        {
+                            // Just sample the bounds and reject if not in this PHS
+                            foundSample = sampleBoundsRejectFunc(statePtr, boost::bind(&PathLengthDirectInfSampler::isInPhs, this, phsCPtr, _1), maxCost, iters);
+                        }
+                        else
+                        {
+                            // Sample the PHS directly and reject if not in the bounds
+                            foundSample = samplePhsRejectBounds(statePtr, phsCPtr, maxCost, iters);
+                        }
+
+                        // Now, if we were successful with either method, we weigh the probability of keeping the sample by the number of overlaps
+                        if (foundSample == true)
+                        {
+                            // Keep with probability 1/K
+                            foundSample = keepSample(getInformedSubstate(statePtr));
+                        }
                     }
                 }
             }
@@ -330,17 +390,146 @@ namespace ompl
 
 
 
-        void PathLengthDirectInfSampler::sampleUniformIgnoreBounds(State *statePtr, const Cost &maxCost)
+        bool PathLengthDirectInfSampler::sampleUniformIgnoreBounds(State *statePtr, const Cost &maxCost, unsigned int *iters)
         {
             // Variable
             // The informed subset of the sample as a vector
             std::vector<double> informedVector(informedSubSpace_->getDimension());
+            // Whether we've found a sample
+            bool foundSample = false;
 
-            // Set the new transverse diameter
-            phsPtr_->setTransverseDiameter(maxCost.value());
+            // Update the PHSs
+            updatePhsDefinitions(maxCost);
 
-            // Sample the ellipse
-            rng_.uniformProlateHyperspheroid(phsPtr_, informedSubSpace_->getDimension(), &informedVector[0]);
+            // Due to the possibility of overlap between multiple PHSs, we keep a sample with a probability of 1/K, where K is the number of PHSs the sample is in.
+            while (foundSample == false && *iters < InformedSampler::numIters_)
+            {
+                // Variable
+                // The random PHS in use for this sample.
+                ProlateHyperspheroidCPtr phsCPtr = randomPhsPtr(maxCost);
+
+                // Sample the PHS directly
+                // Use the PHS to get a sample in the informed subspace irrespective of boundary
+                rng_.uniformProlateHyperspheroid(phsCPtr, informedSubSpace_->getDimension(), &informedVector[0]);
+
+                // Now, if we were successful with either method, we weigh the probability of keeping the sample by the number of overlaps
+                foundSample = keepSample(informedVector);
+            }
+
+            // If we found sample, inflate into the full state space (if there was an uniformed component)
+            createFullState(statePtr, informedVector);
+
+            // Return possible successful
+            return foundSample;
+        }
+
+
+
+        bool PathLengthDirectInfSampler::sampleUniformIgnoreBounds(State *statePtr, const Cost &minCost, const Cost &maxCost, unsigned int *iters)
+        {
+            // Sample from the larger PHS until the sample does not lie within the smaller PHS.
+            // Since volume in a sphere/spheroid is proportionately concentrated near the surface, this isn't horribly inefficient, though a direct method would be better
+
+            // Variable
+            // Whether we were successful in creating an informed sample. Initially not:
+            bool foundSample = false;
+
+            // Spend numIters_ iterations trying to find an sample that is within the bounds:
+            for (unsigned int i = 0u; i < InformedSampler::numIters_ && foundSample == false; ++i)
+            {
+                // Get a sample inside the large PHS:
+                sampleUniformIgnoreBounds(statePtr, maxCost, iters);
+
+                // Check if it is also outside the smaller PHS, which occurs if the minCost is *better* than that of the sample:
+                foundSample = InformedSampler::opt_->isCostBetterThan(minCost, heuristicSolnCost(statePtr));
+            }
+
+            return foundSample;
+        }
+
+
+
+        bool PathLengthDirectInfSampler::sampleBoundsRejectFunc(State* statePtr, KeepFunc keepFunc, const Cost &maxCost, unsigned int *iters)
+        {
+            // Variable
+            // Whether we've found a sample:
+            bool foundSample  = false;
+
+            // Spend numIters_ iterations trying to find an informed sample:
+            while (*iters < InformedSampler::numIters_ && foundSample == false)
+            {
+                // Generate a random sample
+                baseSampler_->sampleUniform(statePtr);
+
+                // The informed substate
+                std::vector<double> informedVector = getInformedSubstate(statePtr);
+
+                // Check if the informed state is in our PHSs.
+                foundSample = keepFunc(informedVector);
+
+                // Increment the provided counter
+                ++(*iters);
+            }
+
+            // successful?
+            return foundSample;
+        }
+
+
+
+        bool PathLengthDirectInfSampler::samplePhsRejectBounds(State *statePtr, ProlateHyperspheroidCPtr phsCPtr, const Cost &maxCost, unsigned int *iters)
+        {
+            // Variable
+            // Whether we've found a sample:
+            bool foundSample  = false;
+            // The informed subset of the sample as a vector
+            std::vector<double> informedVector(informedSubSpace_->getDimension());
+
+            // Spend numIters_ iterations trying to find an sample that is within the bounds:
+            while (*iters < InformedSampler::numIters_ && foundSample == false)
+            {
+                // Use the PHS to get a sample in the informed subspace irrespective of boundary
+                rng_.uniformProlateHyperspheroid(phsCPtr, informedSubSpace_->getDimension(), &informedVector[0]);
+
+                // Turn into a state of our full space
+                createFullState(statePtr, informedVector);
+
+                // Check if the resulting state is in the problem:
+                foundSample = InformedSampler::space_->satisfiesBounds(statePtr);
+
+                // Increment our counter
+                ++(*iters);
+            }
+
+            // successful?
+            return foundSample;
+        }
+
+
+
+        std::vector<double> PathLengthDirectInfSampler::getInformedSubstate(const State *statePtr) const
+        {
+            // Variable
+            // The raw data in the state
+            std::vector<double> rawData(informedSubSpace_->getDimension());
+
+            // Get the raw data
+            if (InformedSampler::space_->isCompound() == false)
+            {
+                informedSubSpace_->copyToReals(rawData, statePtr);
+            }
+            else
+            {
+                informedSubSpace_->copyToReals(rawData, statePtr->as<CompoundState>()->components[informedIdx_]);
+            }
+
+            return rawData;
+        }
+
+
+
+        void PathLengthDirectInfSampler::createFullState(State * statePtr, const std::vector<double> &informedVector)
+        {
 
             // If there is an extra "uninformed" subspace, we need to add that to the state before converting the raw vector representation into a state....
             if (InformedSampler::space_->isCompound() == false)
@@ -370,46 +559,167 @@ namespace ompl
             }
         }
 
-        void PathLengthDirectInfSampler::sampleUniformIgnoreBounds(State *statePtr, const Cost &minCost, const Cost &maxCost)
+
+
+        void PathLengthDirectInfSampler::updatePhsDefinitions(const Cost &maxCost)
         {
-            // Sample from the larger PHS until the sample does not lie within the smaller PHS.
-            // Since volume in a sphere/spheroid is proportionately concentrated near the surface, this isn't horribly inefficient, though a direct method would be better
-
             // Variable
-            // Whether we were successful in creating an informed sample. Initially not:
-            bool foundSample = false;
+            // The iterator for the list:
+            std::list<ompl::ProlateHyperspheroidPtr>::iterator phsIter = listPhsPtrs_.begin();
 
-            // Spend numIters_ iterations trying to find an sample that is within the bounds:
-            for (unsigned int i = 0u; i < InformedSampler::numIters_ && foundSample == false; ++i)
+            // Iterate over the list of PHSs, updating the summed measure
+            // Reset the sum
+            summedMeasure_ = 0.0;
+            while (phsIter != listPhsPtrs_.end())
             {
-                // Get a sample inside the large PHS:
-                sampleUniformIgnoreBounds(statePtr, maxCost);
+                // Check if the specific PHS can ever be better than the given maxCost, i.e., if the distance between the foci is less than the current max cost
+                if ((*phsIter)->getMinTransverseDiameter() < maxCost.value())
+                {
+                    // It can, update it
 
-                // Check if it is also outside the smaller PHS, which occurs if the minCost is *better* than that of the sample:
-                foundSample = InformedSampler::opt_->isCostBetterThan(minCost, heuristicSolnCost(statePtr));
+                    // Update the transverse diameter
+                    (*phsIter)->setTransverseDiameter(maxCost.value());
+
+                    // Increment the summed measure of the ellipses.
+                    summedMeasure_ = summedMeasure_ + (*phsIter)->getPhsMeasure();
+
+                    // Increment the iterator
+                    ++phsIter;
+                }
+                else
+                {
+                    // It can't, remove it
+
+                    // Decrement the number of goals
+                    --numGoals_;
+
+                    // Remove the iterator to delete from the list, this returns the next:
+                    phsIter = listPhsPtrs_.erase(phsIter);
+                }
             }
         }
 
 
-        Cost PathLengthDirectInfSampler::heuristicSolnCost(const State *statePtr) const
+
+        ompl::ProlateHyperspheroidPtr PathLengthDirectInfSampler::randomPhsPtr(const Cost &maxCost)
         {
             // Variable
-            // The raw data in the state
-            std::vector<double> rawData(informedSubSpace_->getDimension());
+            // The return value
+            ompl::ProlateHyperspheroidPtr rval;
 
-            // Get the raw data
-            if (InformedSampler::space_->isCompound() == false)
+            // If we only have one PHS, this can be simplified:
+            if (numGoals_ == 0u)
             {
-                informedSubSpace_->copyToReals(rawData, statePtr);
+                // One goal, keep this simple.
+
+                // Update the diameter
+                listPhsPtrs_.front()->setTransverseDiameter(maxCost.value());
+
+                // Return it
+                rval = listPhsPtrs_.front();
             }
             else
             {
-                informedSubSpace_->copyToReals(rawData, statePtr->as<CompoundState>()->components[informedIdx_]);
+                // We have more than one PHS to consider
+
+                // Variables
+                // A randomly generated number in the interval [0,1]
+                double randDbl = rng_.uniform01();
+                // The running measure
+                double runningMeasure = 0.0;
+
+                // The probability of using each PHS is weighted by it's measure. Therefore, if we iterate up the list of PHSs, the first one who's relative measure is greater than the PHS randomly selected
+                for (std::list<ompl::ProlateHyperspheroidPtr>::const_iterator phsIter = listPhsPtrs_.begin(); phsIter != listPhsPtrs_.end() && static_cast<bool>(rval) == false; ++phsIter)
+                {
+                    // Update the running measure
+                    runningMeasure = runningMeasure + (*phsIter)->getPhsMeasure();
+
+                    // Check if it's now greater than the proportion of the summed measure
+                    if (runningMeasure > randDbl*summedMeasure_)
+                    {
+                        // It is, return this PHS:
+                        rval = *phsIter;
+                    }
+                    // No else, continue
+                }
             }
 
-            // Calculate and return the length
-            return Cost(phsPtr_->getPathLength(informedSubSpace_->getDimension(), &rawData[0]));
+            // Return
+            return rval;
         }
 
+
+
+        bool PathLengthDirectInfSampler::keepSample(const std::vector<double>& informedVector)
+        {
+            // Variable
+            // The return value, do we keep this sample? Start true.
+            bool keep = true;
+
+            // Is there more than 1 goal?
+            if (numGoals_ > 1u)
+            {
+                // There is, do work
+
+                // Variable
+                // The number of PHSs the sample is in
+                unsigned int numIn = numberOfPhsInclusions(informedVector);
+                // The random number between [0,1]
+                double randDbl = rng_.uniform01();
+
+                // Keep the sample if the random number is less than 1/K
+                keep = (randDbl <= 1.0/static_cast<double>(numIn));
+            }
+            // No else, keep is true by default.
+
+            return keep;
+        }
+
+
+
+        bool PathLengthDirectInfSampler::isInAnyPhs(const std::vector<double>& informedVector) const
+        {
+            // Variable
+            // The return value, whether the given state is in any PHS
+            bool inPhs = false;
+
+            // Iterate over the list, stopping as soon as we get our first true
+            for (std::list<ompl::ProlateHyperspheroidPtr>::const_iterator phsIter = listPhsPtrs_.begin(); phsIter != listPhsPtrs_.end() && inPhs == false; ++ phsIter)
+            {
+                inPhs = isInPhs(*phsIter, informedVector);
+            }
+
+            return inPhs;
+        }
+
+
+
+        bool PathLengthDirectInfSampler::isInPhs(const ProlateHyperspheroidCPtr &phsCPtr, const std::vector<double> &informedVector) const
+        {
+            return phsCPtr->isInPhs(informedSubSpace_->getDimension(), &informedVector[0]);
+        }
+
+
+
+        unsigned int PathLengthDirectInfSampler::numberOfPhsInclusions(const std::vector<double>& informedVector) const
+        {
+            // Variable
+            // The return value, the number of PHSs the vector is in
+            unsigned int numInclusions = 0u;
+
+            // Iterate over the list counting
+            for (std::list<ompl::ProlateHyperspheroidPtr>::const_iterator phsIter = listPhsPtrs_.begin(); phsIter != listPhsPtrs_.end(); ++ phsIter)
+            {
+                // Conditionally increment
+                if ((*phsIter)->isInPhs(informedSubSpace_->getDimension(), &informedVector[0]) == true)
+                {
+                    ++numInclusions;
+                }
+                // No else
+            }
+
+            return numInclusions;
+        }
+        /////////////////////////////////////////////////////////////////////////////////////////////
     }; // base
 };  // ompl
