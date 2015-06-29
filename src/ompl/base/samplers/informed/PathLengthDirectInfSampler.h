@@ -110,6 +110,9 @@ namespace ompl
             /** \brief Sample uniformly in the subset of the \e infinite state space whose heuristic solution estimates are between the provided costs, i.e., ignores the bounds of the state space. */
             bool sampleUniformIgnoreBounds(State *statePtr, const Cost &minCost, const Cost &maxCost, unsigned int *iters);
 
+            /** \brief Randomly select a PHS and generate a sample from within. */
+            bool sampleRandomPhs(State *statePtr, const Cost &maxCost, unsigned int *iters);
+
             /** \brief Sample from the bounds of the problem and keep the sample if it passes the given test. Meant to be used with isInAnyPhs and phsPtr->isInPhs() */
             bool sampleBoundsRejectFunc(State* statePtr, KeepFunc keepFunc, const Cost &maxCost, unsigned int *iters);
 
@@ -148,9 +151,6 @@ namespace ompl
             // Variables
             /** \brief The prolate hyperspheroid description of the sub problems. One per goal state. */
             std::list<ompl::ProlateHyperspheroidPtr> listPhsPtrs_;
-
-            /** \brief The number of active goals in the problem */
-            unsigned int numGoals_;
 
             /** \brief The summed measure of all the start-goal pairs */
             double summedMeasure_;

@@ -82,7 +82,7 @@ namespace ompl
                 if (foundSample == true)
                 {
                     // We did, but that was only inside the bigger PHS, we need to assure it's outside the smaller one which occurs if the minCost is *better* than that of the sample:
-                    foundSample = InformedSampler::opt_->isCostBetterThan(minCost, heuristicSolnCost(statePtr));
+                    foundSample = InformedSampler::opt_->isCostBetterThan(minCost, InformedSampler::heuristicSolnCost(statePtr));
                 }
                 // No else, no sample was found.
             }

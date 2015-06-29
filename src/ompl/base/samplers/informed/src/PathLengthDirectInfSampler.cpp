@@ -57,19 +57,17 @@ namespace ompl
         // The direct ellipsoid sampling class for path-length:
         PathLengthDirectInfSampler::PathLengthDirectInfSampler(const ProblemDefinitionPtr probDefn, unsigned int maxNumberCalls)
           : InformedSampler(probDefn, maxNumberCalls),
-            numGoals_(0u), // Purposeful gibberish
             informedIdx_(0u),
             uninformedIdx_(0u)
         {
             // Variables
-            // The start of the PHS as a std::vectors
-            std::vector<double> startFocusVector;
-
-            // Sanity check the problem.
-            if (probDefn_->getStartStateCount() != 1u)
-            {
-                throw Exception("PathLengthDirectInfSampler: The direct path-length informed sampler currently only supports 1 start state.");
-            }
+            // The number of start states
+            unsigned int numStarts;
+            // The number of goal states
+            unsigned numGoals;
+            // The foci of the PHSs as a std::vector of states:
+            std::vector<const State*> startStates;
+            std::vector<const State*> goalStates;
 
             if (probDefn_->getGoal()->hasType(GOAL_STATE) == false && probDefn_->getGoal()->hasType(GOAL_STATES) == false)
             {
@@ -78,14 +76,23 @@ namespace ompl
 
             /// \todo We don't check for the cost-to-go heuristic in the optimization objective, as this direct sampling is for Euclidean distance.
 
-            // Store the number of goals:
+            // Store the number of starts
+            numStarts = probDefn_->getStartStateCount();
+
+            // And the number of goals:
             if (probDefn_->getGoal()->hasType(GOAL_STATES) == true)
             {
-                numGoals_ = probDefn_->getGoal()->as<GoalStates>()->getStateCount();
+                numGoals = probDefn_->getGoal()->as<GoalStates>()->getStateCount();
             }
             else
             {
-                numGoals_ = 1u;
+                numGoals = 1u;
+            }
+
+            // Sanity check that there is atleast one of each
+            if (numStarts < 1u || numGoals < 1u)
+            {
+                throw Exception("PathLengthDirectInfSampler: There must be at least 1 start and and 1 goal state when the informed sampler is created.");
             }
 
             // Check that the provided statespace is compatible and extract the necessary indices.
@@ -176,33 +183,46 @@ namespace ompl
                 uninformedSubSampler_ = uninformedSubSpace_->allocDefaultStateSampler();
             }
 
-            // Store the foci, there's only one start:
-            startFocusVector = getInformedSubstate(probDefn_->getStartState(0u));
+            // Store the foci, first the starts:
+            for (unsigned int i = 0u; i < numStarts; ++i)
+            {
+                startStates.push_back(probDefn_->getStartState(i));
+            }
+
 
             // By virtue of the earlier check, we know that the goal is either a state or a set of states. Check
-            if (numGoals_ > 1u)
+            if (numGoals > 1u)
             {
-                // The goal is a countable set of goals, create a PHS for each one!
-                for (unsigned int i = 0u; i < numGoals_; ++i)
+                // The goal is a countable set of goals, extract the state of each one and place in the goal vector!
+                for (unsigned int i = 0u; i < numGoals; ++i)
                 {
-                    // Variable
-                    // The goal as a vector
-                    std::vector<double> goalFocusVector = getInformedSubstate(probDefn_->getGoal()->as<GoalStates>()->getState(i));
-
-                    // Create the definition of the PHS
-                    listPhsPtrs_.push_back(boost::make_shared<ProlateHyperspheroid>(informedSubSpace_->getDimension(), &startFocusVector[0], &goalFocusVector[0]));
+                    goalStates.push_back(probDefn_->getGoal()->as<GoalStates>()->getState(i));
                 }
             }
             else
             {
                 // It is not a set of states, so therefore it must be a single state:
+                goalStates.push_back(probDefn_->getGoal()->as<GoalState>()->getState());
+            }
 
+            // No, iterate create a PHS for each start-goal pair
+            // Each start
+            for (unsigned int i = 0u; i < numStarts; ++i)
+            {
                 // Variable
-                // The goal as a vector
-                std::vector<double> goalFocusVector = getInformedSubstate(probDefn_->getGoal()->as<GoalState>()->getState());
+                // The start as a vector
+                std::vector<double> startFocusVector = getInformedSubstate(startStates.at(i));
 
-                // Create the definition of the PHS
-                listPhsPtrs_.push_back(boost::make_shared<ProlateHyperspheroid>(informedSubSpace_->getDimension(), &startFocusVector[0], &goalFocusVector[0]));
+                // Each goal
+                for (unsigned int j = 0u; j < numGoals; ++ j)
+                {
+                    // Variable
+                    // The goal as a vector
+                    std::vector<double> goalFocusVector = getInformedSubstate(goalStates.at(j));
+
+                    // Create the definition of the PHS
+                    listPhsPtrs_.push_back(boost::make_shared<ProlateHyperspheroid>(informedSubSpace_->getDimension(), &startFocusVector[0], &goalFocusVector[0]));
+                }
             }
         }
 
@@ -299,7 +319,7 @@ namespace ompl
             for (std::list<ompl::ProlateHyperspheroidPtr>::const_iterator phsIter = listPhsPtrs_.begin(); phsIter != listPhsPtrs_.end(); ++phsIter)
             {
                 /** \todo Use a heuristic function for the full solution cost defined in OptimizationObjective or some new Heuristic class once said function is defined. */
-                minCost = InformedSampler::opt_->betterCost(minCost, Cost((*phsIter)->getPathLength(informedSubSpace_->getDimension(), &rawData[0])));
+                minCost = InformedSampler::opt_->betterCost(minCost, Cost((*phsIter)->getPathLength(&rawData[0])));
             }
 
             return minCost;
@@ -338,10 +358,10 @@ namespace ompl
 
                 // When the summed measure is suitably large, it makes more sense to just sample from the entire planning space and keep the sample if it lies in any PHS
                 // Only check this if we have more than 1 goal
-                if (numGoals_ > 1u)
+                if (listPhsPtrs_.size() > 1u)
                 {
                     // Check if the average measure is greater than half the domain's measure
-                    if (summedMeasure_/static_cast<double>(numGoals_) > 0.5*informedSubSpace_->getMeasure())
+                    if (summedMeasure_/static_cast<double>(listPhsPtrs_.size()) > 0.5*informedSubSpace_->getMeasure())
                     {
                         // The measure is large, sample from the entire world and keep if it's in a PHS
                         while (foundSample == false && *iters < InformedSampler::numIters_)
@@ -350,37 +370,16 @@ namespace ompl
                             foundSample = sampleBoundsRejectFunc(statePtr, boost::bind(&PathLengthDirectInfSampler::isInAnyPhs, this, _1), maxCost, iters);
                         }
                     }
+                    else
+                    {
+                        // The measure is sufficiently small that we will perform direct PHS sampling weighted by relative measure
+                        foundSample = sampleRandomPhs(statePtr, maxCost, iters);
+                    }
                 }
                 else
                 {
-                    // The measure is suffiently small that we will performed PHS sampling weighted by it's relative measure
-
-                    // Due to the possibility of overlap between multiple PHSs, we keep a sample with a probability of 1/K, where K is the number of PHSs the sample is in.
-                    while (foundSample == false && *iters < InformedSampler::numIters_)
-                    {
-                        // Variable
-                        // The random PHS in use for this sample.
-                        ProlateHyperspheroidCPtr phsCPtr = randomPhsPtr(maxCost);
-
-                        // Check if this PHS is too large to sample directly
-                        if (phsCPtr->getPhsMeasure() > informedSubSpace_->getMeasure())
-                        {
-                            // Just sample the bounds and reject if not in this PHS
-                            foundSample = sampleBoundsRejectFunc(statePtr, boost::bind(&PathLengthDirectInfSampler::isInPhs, this, phsCPtr, _1), maxCost, iters);
-                        }
-                        else
-                        {
-                            // Sample the PHS directly and reject if not in the bounds
-                            foundSample = samplePhsRejectBounds(statePtr, phsCPtr, maxCost, iters);
-                        }
-
-                        // Now, if we were successful with either method, we weigh the probability of keeping the sample by the number of overlaps
-                        if (foundSample == true)
-                        {
-                            // Keep with probability 1/K
-                            foundSample = keepSample(getInformedSubstate(statePtr));
-                        }
-                    }
+                    // The measure is sufficiently small that we will perform direct PHS sampling weighted by relative measure
+                    foundSample = sampleRandomPhs(statePtr, maxCost, iters);
                 }
             }
 
@@ -410,7 +409,7 @@ namespace ompl
 
                 // Sample the PHS directly
                 // Use the PHS to get a sample in the informed subspace irrespective of boundary
-                rng_.uniformProlateHyperspheroid(phsCPtr, informedSubSpace_->getDimension(), &informedVector[0]);
+                rng_.uniformProlateHyperspheroid(phsCPtr, &informedVector[0]);
 
                 // Now, if we were successful with either method, we weigh the probability of keeping the sample by the number of overlaps
                 foundSample = keepSample(informedVector);
@@ -442,6 +441,45 @@ namespace ompl
 
                 // Check if it is also outside the smaller PHS, which occurs if the minCost is *better* than that of the sample:
                 foundSample = InformedSampler::opt_->isCostBetterThan(minCost, heuristicSolnCost(statePtr));
+            }
+
+            return foundSample;
+        }
+
+
+
+        bool PathLengthDirectInfSampler::sampleRandomPhs(State *statePtr, const Cost &maxCost, unsigned int *iters)
+        {
+            // Variable
+            // Whether we were successful in creating an informed sample. Initially not:
+            bool foundSample = false;
+
+            // Due to the possibility of overlap between multiple PHSs, we keep a sample with a probability of 1/K, where K is the number of PHSs the sample is in.
+            while (foundSample == false && *iters < InformedSampler::numIters_)
+            {
+                // Variable
+                // The random PHS in use for this sample.
+                ProlateHyperspheroidCPtr phsCPtr = randomPhsPtr(maxCost);
+
+                // Check if this PHS is too large to sample directly
+                if (phsCPtr->getPhsMeasure() > informedSubSpace_->getMeasure())
+                {
+                    // Just sample the bounds and reject if not in this PHS
+                    foundSample = sampleBoundsRejectFunc(statePtr, boost::bind(&PathLengthDirectInfSampler::isInPhs, this, phsCPtr, _1), maxCost, iters);
+                }
+                else
+                {
+                    // Sample the PHS directly and reject if not in the bounds
+                    foundSample = samplePhsRejectBounds(statePtr, phsCPtr, maxCost, iters);
+                }
+
+                // Now, if we were successful with either method, we weigh the probability of keeping the sample by the number of overlaps
+                if (foundSample == true)
+                {
+                    // Keep with probability 1/K
+                    foundSample = keepSample(getInformedSubstate(statePtr));
+                }
+                // No else, continue loop
             }
 
             return foundSample;
@@ -489,7 +527,7 @@ namespace ompl
             while (*iters < InformedSampler::numIters_ && foundSample == false)
             {
                 // Use the PHS to get a sample in the informed subspace irrespective of boundary
-                rng_.uniformProlateHyperspheroid(phsCPtr, informedSubSpace_->getDimension(), &informedVector[0]);
+                rng_.uniformProlateHyperspheroid(phsCPtr, &informedVector[0]);
 
                 // Turn into a state of our full space
                 createFullState(statePtr, informedVector);
@@ -590,9 +628,6 @@ namespace ompl
                 {
                     // It can't, remove it
 
-                    // Decrement the number of goals
-                    --numGoals_;
-
                     // Remove the iterator to delete from the list, this returns the next:
                     phsIter = listPhsPtrs_.erase(phsIter);
                 }
@@ -608,7 +643,7 @@ namespace ompl
             ompl::ProlateHyperspheroidPtr rval;
 
             // If we only have one PHS, this can be simplified:
-            if (numGoals_ == 0u)
+            if (listPhsPtrs_.size() == 1u)
             {
                 // One goal, keep this simple.
 
@@ -626,16 +661,16 @@ namespace ompl
                 // A randomly generated number in the interval [0,1]
                 double randDbl = rng_.uniform01();
                 // The running measure
-                double runningMeasure = 0.0;
+                double runningRelativeMeasure = 0.0;
 
                 // The probability of using each PHS is weighted by it's measure. Therefore, if we iterate up the list of PHSs, the first one who's relative measure is greater than the PHS randomly selected
                 for (std::list<ompl::ProlateHyperspheroidPtr>::const_iterator phsIter = listPhsPtrs_.begin(); phsIter != listPhsPtrs_.end() && static_cast<bool>(rval) == false; ++phsIter)
                 {
                     // Update the running measure
-                    runningMeasure = runningMeasure + (*phsIter)->getPhsMeasure();
+                    runningRelativeMeasure = runningRelativeMeasure + (*phsIter)->getPhsMeasure()/summedMeasure_;
 
                     // Check if it's now greater than the proportion of the summed measure
-                    if (runningMeasure > randDbl*summedMeasure_)
+                    if (runningRelativeMeasure > randDbl)
                     {
                         // It is, return this PHS:
                         rval = *phsIter;
@@ -657,7 +692,7 @@ namespace ompl
             bool keep = true;
 
             // Is there more than 1 goal?
-            if (numGoals_ > 1u)
+            if (listPhsPtrs_.size() > 1u)
             {
                 // There is, do work
 
@@ -696,7 +731,7 @@ namespace ompl
 
         bool PathLengthDirectInfSampler::isInPhs(const ProlateHyperspheroidCPtr &phsCPtr, const std::vector<double> &informedVector) const
         {
-            return phsCPtr->isInPhs(informedSubSpace_->getDimension(), &informedVector[0]);
+            return phsCPtr->isInPhs(&informedVector[0]);
         }
 
 
@@ -711,7 +746,7 @@ namespace ompl
             for (std::list<ompl::ProlateHyperspheroidPtr>::const_iterator phsIter = listPhsPtrs_.begin(); phsIter != listPhsPtrs_.end(); ++ phsIter)
             {
                 // Conditionally increment
-                if ((*phsIter)->isInPhs(informedSubSpace_->getDimension(), &informedVector[0]) == true)
+                if ((*phsIter)->isInPhs(&informedVector[0]) == true)
                 {
                     ++numInclusions;
                 }
