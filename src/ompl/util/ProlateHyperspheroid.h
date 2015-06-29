@@ -91,7 +91,7 @@ namespace ompl
         /** \brief Calculate length of a line that originates from one focus, passes through the given point, and terminates at the other focus, i.e., the transverse diameter of the ellipse on which the given sample lies*/
         double getPathLength(const double point[]) const;
 
-        /** \brief Get the state dimension of this PHS */
+        /** \brief The state dimension of the PHS */
         unsigned int getDimension() const;
 
     protected:
