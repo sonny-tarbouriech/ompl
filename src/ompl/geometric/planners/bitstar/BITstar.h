@@ -44,6 +44,8 @@
 #include <utility>
 //std::vector
 #include <vector>
+//std::list
+#include <list>
 
 //OMPL:
 //The base-class of planners:
@@ -148,7 +150,7 @@ namespace ompl
             template<template<typename T> class NN>
             void setNearestNeighbors();
             ///////////////////////////////////////
-            // Planner settings:
+            //Planner settings:
             /** \brief Set the rewiring scale factor, s, such that r_rrg = s \times r_rrg* */
             void setRewireFactor(double rewireFactor);
 
@@ -395,7 +397,7 @@ namespace ompl
             ///////////////////////////////////////////////////////////////////
 
             ///////////////////////////////////////
-            // Planner progress property functions
+            //Planner progress property functions
             /** \brief Retrieve the best exact-solution cost found
             as the raw data. (bestCost_) */
             ompl::base::Cost bestCost() const;
@@ -481,17 +483,20 @@ namespace ompl
             /** \brief Optimization objective copied from ProblemDefinition */
             ompl::base::OptimizationObjectivePtr                     opt_;
 
-            /** \brief The start of the problem as a vertex*/
-            VertexPtr                                                startVertex_;
+            /** \brief The start states of the problem as vertices */
+            std::list<VertexPtr>                                     startVertices_;
 
-            /** \brief The goal of the problem as a vertex*/
-            VertexPtr                                                goalVertex_;
+            /** \brief The goal states of the problem as vertices */
+            std::list<VertexPtr>                                     goalVertices_;
+
+            /** \brief The goal vertex of the current best solution */
+            VertexPtr                                                curGoalVertex_;
 
             /** \brief The unconnected samples as a nearest-neighbours datastructure. Sorted by nnDistance. Size accessible via currentFreeProgressProperty */
-            VertexPtrNNPtr                                          freeStateNN_;
+            VertexPtrNNPtr                                           freeStateNN_;
 
             /** \brief The vertices as a nearest-neighbours data structure. Sorted by nnDistance. Size accessible via currentVertexProgressProperty */
-            VertexPtrNNPtr                                          vertexNN_;
+            VertexPtrNNPtr                                           vertexNN_;
 
             /** \brief The integrated queue of vertices to expand and edges to process ordered on "f-value", i.e., estimated solution cost. Remaining vertex queue "size" and edge queue size are accessible via vertexQueueSizeProgressProperty and edgeQueueSizeProgressProperty, respectively. */
             IntegratedQueuePtr                                       intQueue_;

@@ -378,7 +378,7 @@ namespace ompl
                 }
                 else
                 {
-                    // The measure is sufficiently small that we will perform direct PHS sampling weighted by relative measure
+                    // Only one PHS, so sample it.
                     foundSample = sampleRandomPhs(statePtr, maxCost, iters);
                 }
             }
@@ -645,7 +645,7 @@ namespace ompl
             // If we only have one PHS, this can be simplified:
             if (listPhsPtrs_.size() == 1u)
             {
-                // One goal, keep this simple.
+                // One PHS, keep this simple.
 
                 // Update the diameter
                 listPhsPtrs_.front()->setTransverseDiameter(maxCost.value());

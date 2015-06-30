@@ -120,7 +120,7 @@ namespace ompl
             //Public functions:
             /** \brief Construct an integrated queue. */
             //boost::make_shared can only take 9 arguments, so be careful:
-            IntegratedQueue(const VertexPtr& startVertex, const VertexPtr& goalVertex, const NeighbourhoodFunc& nearSamplesFunc, const NeighbourhoodFunc& nearVerticesFunc, const VertexHeuristicFunc& lowerBoundHeuristicVertex, const VertexHeuristicFunc& currentHeuristicVertex, const EdgeHeuristicFunc& lowerBoundHeuristicEdge, const EdgeHeuristicFunc& currentHeuristicEdge, const EdgeHeuristicFunc& currentHeuristicEdgeTarget);
+            IntegratedQueue(const ompl::base::OptimizationObjectivePtr& opt, const NeighbourhoodFunc& nearSamplesFunc, const NeighbourhoodFunc& nearVerticesFunc, const VertexHeuristicFunc& lowerBoundHeuristicVertex, const VertexHeuristicFunc& currentHeuristicVertex, const EdgeHeuristicFunc& lowerBoundHeuristicEdge, const EdgeHeuristicFunc& currentHeuristicEdge, const EdgeHeuristicFunc& currentHeuristicEdgeTarget);
 
             virtual ~IntegratedQueue();
 
@@ -195,7 +195,7 @@ namespace ompl
             void markVertexUnsorted(const VertexPtr& vertex);
 
             /** \brief Prune the vertex queue of vertices whose their lower-bound heuristic is greater then the threshold. Descendents of pruned vertices that are not pruned themselves are returned to the set of free states. Returns the number of vertices pruned (either removed completely or moved to the set of free states). */
-            std::pair<unsigned int, unsigned int> prune(const VertexPtrNNPtr& vertexNN, const VertexPtrNNPtr& freeStateNN);
+            std::pair<unsigned int, unsigned int> prune(const VertexPtr& pruneStartPtr, const VertexPtrNNPtr& vertexNN, const VertexPtrNNPtr& freeStateNN);
 
             /** \brief Resort the queue, only reinserting edges/vertices if their lower-bound heuristic is less then the threshold. Descendents of pruned vertices that are not pruned themselves are returned to the set of free states. Requires first marking the queue as unsorted. Returns the number of vertices pruned (either removed completely or moved to the set of free states). */
             std::pair<unsigned int, unsigned int> resort(const VertexPtrNNPtr& vertexNN, const VertexPtrNNPtr& freeStateNN);
@@ -287,29 +287,23 @@ namespace ompl
             /** \brief My optimization objective. */
             ompl::base::OptimizationObjectivePtr                     opt_;
 
-            /** \brief My start vertex. */
-            VertexPtr                                                startVertex_;
-
-            /** \brief My goal vertex */
-            VertexPtr                                                goalVertex_;
+            /** \brief The function to find nearby samples. */
+            NeighbourhoodFunc                                        nearSamplesFunc_;
 
             /** \brief The function to find nearby samples. */
-            NeighbourhoodFunc                                     nearSamplesFunc_;
-
-            /** \brief The function to find nearby samples. */
-            NeighbourhoodFunc                                     nearVerticesFunc_;
+            NeighbourhoodFunc                                        nearVerticesFunc_;
 
             /** \brief The lower-bounding heuristic for a vertex. */
-            VertexHeuristicFunc                                  lowerBoundHeuristicVertexFunc_;
+            VertexHeuristicFunc                                      lowerBoundHeuristicVertexFunc_;
 
             /** \brief The current heuristic for a vertex. */
-            VertexHeuristicFunc                                  currentHeuristicVertexFunc_;
+            VertexHeuristicFunc                                      currentHeuristicVertexFunc_;
 
             /** \brief The lower-bounding heuristic for an edge. */
-            EdgeHeuristicFunc                                    lowerBoundHeuristicEdgeFunc_;
+            EdgeHeuristicFunc                                        lowerBoundHeuristicEdgeFunc_;
 
             /** \brief The current heuristic for an edge. */
-            EdgeHeuristicFunc                                    currentHeuristicEdgeFunc_;
+            EdgeHeuristicFunc                                        currentHeuristicEdgeFunc_;
 
             /** \brief The current heuristic to the end of an edge. */
             EdgeHeuristicFunc                                        currentHeuristicEdgeTargetFunc_;
@@ -447,7 +441,7 @@ namespace ompl
             bool isCostWorseThanOrEquivalentTo(const ompl::base::Cost& a, const ompl::base::Cost& b) const;
             ////////////////////////////////
         }; //class: IntegratedQueue
-    } // geometric
-} // ompl
+    } //geometric
+} //ompl
 #endif //OMPL_GEOMETRIC_PLANNERS_BITSTAR_DATASTRUCTURES_INTEGRATEDQUEUE_
 

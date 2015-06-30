@@ -54,10 +54,12 @@
 #include "ompl/util/Console.h"
 //For exceptions:
 #include "ompl/util/Exception.h"
-// For geometric equations like unitNBallMeasure
+//For geometric equations like unitNBallMeasure
 #include "ompl/util/GeometricEquations.h"
-//For ompl::base::GoalStates:
+//For ompl::base::GoalState:
 #include "ompl/base/goals/GoalState.h"
+//For ompl::base::GoalStates:
+#include "ompl/base/goals/GoalStates.h"
 //For getDefaultNearestNeighbors
 #include "ompl/tools/config/SelfConfig.h"
 //For ompl::geometric::path
@@ -77,8 +79,9 @@ namespace ompl
             : ompl::base::Planner(si, name),
             sampler_(),
             opt_(),
-            startVertex_(),
-            goalVertex_(),
+            startVertices_(),
+            goalVertices_(),
+            curGoalVertex_(),
             freeStateNN_(),
             vertexNN_(),
             intQueue_(),
@@ -118,7 +121,8 @@ namespace ompl
             stopOnSolnChange_(false)
         {
             //Specify my planner specs:
-            Planner::specs_.recognizedGoal = ompl::base::GOAL_STATE;
+            //I guess say I work with GOAL_STATES? I also work with a regular GOAL_STATE?
+            Planner::specs_.recognizedGoal = ompl::base::GOAL_STATES;
             Planner::specs_.multithreaded = false;
             Planner::specs_.approximateSolutions = false; //For now!
             Planner::specs_.optimizingPaths = true;
@@ -185,14 +189,6 @@ namespace ompl
                 return;
             }
 
-            //Make sure the problem only has one start state.
-            if (Planner::pdef_->getStartStateCount() != 1u)
-            {
-                OMPL_ERROR("%s::setup() was called with %u start states, instead of exactly 1.", Planner::getName().c_str(), Planner::pdef_->getStartStateCount());
-                Planner::setup_ = false;
-                return;
-            }
-
             //Make sure we have an optimization objective
             if (Planner::pdef_->hasOptimizationObjective() == false)
             {
@@ -221,22 +217,51 @@ namespace ompl
             freeStateNN_->setDistanceFunction(boost::bind(&BITstar::nnDistance, this, _1, _2));
             vertexNN_->setDistanceFunction(boost::bind(&BITstar::nnDistance, this, _1, _2));
 
-            //Create the start as a vertex:
-            startVertex_ = boost::make_shared<Vertex>(Planner::si_, opt_, true);
+            //Create the start vertices:
+            for (unsigned int i = 0u; i < Planner::pdef_->getStartStateCount(); ++i)
+            {
+                //Allocate the vertex pointer:
+                startVertices_.push_back(boost::make_shared<Vertex>(Planner::si_, opt_, true));
 
-            //Copy the value of the start
-            Planner::si_->copyState(startVertex_->state(), pdef_->getStartState(0u));
+                //Copy the value into the state:
+                Planner::si_->copyState(startVertices_.back()->state(), Planner::pdef_->getStartState(i));
+            }
 
-            //Create the goal as a vertex:
-            //Create a vertex
-            goalVertex_ = boost::make_shared<Vertex>(Planner::si_, opt_);
+            //Create the goal vertices, depending on goal type.
+            if (Planner::pdef_->getGoal()->hasType(ompl::base::GOAL_STATE) == true)
+            {
+                //The goal is of type GOAL_STATE, which means there is only one goal. Easy!
 
-            //Copy the value of the goal
-            Planner::si_->copyState(goalVertex_->state(), Planner::pdef_->getGoal()->as<ompl::base::GoalState>()->getState());
+                //Allocate the vertex pointer
+                goalVertices_.push_back(boost::make_shared<Vertex>(Planner::si_, opt_));
+
+                //Copy the value into the state
+                Planner::si_->copyState(goalVertices_.back()->state(), Planner::pdef_->getGoal()->as<ompl::base::GoalState>()->getState());
+            }
+            else if (Planner::pdef_->getGoal()->hasType(ompl::base::GOAL_STATES) == true)
+            {
+                //The goal is of type GOAL_STATES, which means there is a countable number of goals. Kinda easy.
+
+                //Iterate over the list of goal states
+                for (unsigned int i = 0u; i < Planner::pdef_->getGoal()->as<ompl::base::GoalStates>()->getStateCount(); ++i)
+                {
+                    //Allocate the vertex pointer
+                    goalVertices_.push_back(boost::make_shared<Vertex>(Planner::si_, opt_));
+
+                    //Copy the value into the state
+                    Planner::si_->copyState(goalVertices_.back()->state(), Planner::pdef_->getGoal()->as<ompl::base::GoalStates>()->getState(i));
+                }
+            }
+            else
+            {
+                OMPL_ERROR("%s::setup() was called with with a goal that is not of type GoalState or GoalStates.", Planner::getName().c_str());
+                Planner::setup_ = false;
+                return;
+            }
 
             //Configure the queue
             //boost::make_shared can only take 9 arguments, so be careful:
-            intQueue_ = boost::make_shared<IntegratedQueue> (startVertex_, goalVertex_, boost::bind(&BITstar::nearestSamples, this, _1, _2), boost::bind(&BITstar::nearestVertices, this, _1, _2), boost::bind(&BITstar::lowerBoundHeuristicVertex, this, _1), boost::bind(&BITstar::currentHeuristicVertex, this, _1), boost::bind(&BITstar::lowerBoundHeuristicEdge, this, _1), boost::bind(&BITstar::currentHeuristicEdge, this, _1), boost::bind(&BITstar::currentHeuristicEdgeTarget, this, _1));
+            intQueue_ = boost::make_shared<IntegratedQueue> (opt_, boost::bind(&BITstar::nearestSamples, this, _1, _2), boost::bind(&BITstar::nearestVertices, this, _1, _2), boost::bind(&BITstar::lowerBoundHeuristicVertex, this, _1), boost::bind(&BITstar::currentHeuristicVertex, this, _1), boost::bind(&BITstar::lowerBoundHeuristicEdge, this, _1), boost::bind(&BITstar::currentHeuristicEdge, this, _1), boost::bind(&BITstar::currentHeuristicEdgeTarget, this, _1));
             intQueue_->setUseFailureTracking(useFailureTracking_);
             intQueue_->setDelayedRewiring(delayRewiring_);
 
@@ -247,18 +272,28 @@ namespace ompl
             bestCost_ = opt_->infiniteCost();
             prunedCost_ = opt_->infiniteCost();
 
-            //Set the minimum cost as the cost-to-come of the goal:
-            minCost_ = this->costToComeHeuristic(goalVertex_);
-
             //Set the cost sampled to the maximum. This forces us to first check the basic start-goal graph.
             costSampled_ = bestCost_;
 
-            //Finally, as they depend on some of the above, insert the start and goal into the proper sets
-            //Add the goal to the set of samples.:
-            this->addSample(goalVertex_);
+            //Set the minimum cost as the minimum cost-to-come to any goal:
+            //Start with infinite cost
+            minCost_ = opt_->infiniteCost();
 
-            //Store the start into the tree and the queue:
-            this->addVertex(startVertex_, false);
+            //Iterate over all the goals
+            for (std::list<VertexPtr>::const_iterator gIter = goalVertices_.begin(); gIter != goalVertices_.end(); ++gIter)
+            {
+                //Take the better of the min cost so far and the cost-to-come to this goal
+                minCost_ = this->betterCost(minCost_, this->costToComeHeuristic(*gIter));
+
+                //And add this goal to the set of samples:
+                this->addSample(*gIter);
+            }
+
+            //Store the start vertices into the tree and the queue:
+            for (std::list<VertexPtr>::const_iterator sIter = startVertices_.begin(); sIter != startVertices_.end(); ++sIter)
+            {
+                this->addVertex(*sIter, false);
+            }
 
             //Finally initialize the nearestNeighbour terms:
             this->initializeNearestTerms();
@@ -277,8 +312,9 @@ namespace ompl
             //The various convenience pointers:
             sampler_.reset();
             opt_.reset();
-            startVertex_.reset();
-            goalVertex_.reset();
+            startVertices_.clear();
+            goalVertices_.clear();
+            curGoalVertex_.reset();
 
             //The list of samples
             if (static_cast<bool>(freeStateNN_) == true)
@@ -438,7 +474,7 @@ namespace ompl
             //Did we find a solution?
             if (hasSolution_ == true)
             {
-                data.markGoalState(goalVertex_->stateConst());
+                data.markGoalState(curGoalVertex_->stateConst());
             }
         }
 
@@ -765,11 +801,8 @@ namespace ompl
         bool BITstar::prune()
         {
             //Variable:
-            //Whether or not we pruned
-            bool rval;
-
-            //Start as unpruned:
-            rval = false;
+            //Whether or not we pruned, start as unpruned
+            bool vertexPruned = false;
 
             //Test if we should we do a little tidying up:
             //Is pruning enabled? Do we have a solution? Has the solution changed enough?
@@ -798,7 +831,7 @@ namespace ompl
 
                     //Prune the graph. This can be done extra efficiently by using some info in the integrated queue.
                     //This requires access to the nearest neighbour structures so vertices can be moved to free states.
-                    numPruned = intQueue_->prune(vertexNN_, freeStateNN_);
+                    numPruned = intQueue_->prune(curGoalVertex_, vertexNN_, freeStateNN_);
 
                     //The number of vertices and samples pruned are incrementally updated.
                     numVerticesDisconnected_ = numVerticesDisconnected_ + numPruned.first;
@@ -811,13 +844,52 @@ namespace ompl
                     prunedMeasure_ = informedMeasure;
 
                     //Check if any states have actually been pruned
-                    rval = (numPruned.second > 0u);
+                    vertexPruned = (numPruned.second > 0u);
+
+                    //If any have been pruned, then we may have pruned a start or goal
+                    if (vertexPruned == true)
+                    {
+                        //Are there superfluous starts to prune?
+                        if (startVertices_.size() > 1u)
+                        {
+                            //Yes, Iterate through the list
+                            for (std::list<VertexPtr>::iterator startIter = startVertices_.begin(); startIter != startVertices_.end(); ++startIter)
+                            {
+                                //Check if this start has been pruned
+                                if ((*startIter)->isPruned() == true)
+                                {
+                                    //It has, remove from the list. erase returns the next iterator
+                                    startIter = startVertices_.erase(startIter);
+                                }
+                                //No else, this start is still valid
+                            }
+                        }
+                        //No else, can't prune 1 start.
+
+                        //Are there superfluous goals to prune?
+                        if (goalVertices_.size() > 1u)
+                        {
+                            //Yes, Iterate through the list
+                            for (std::list<VertexPtr>::iterator goalIter = goalVertices_.begin(); goalIter != goalVertices_.end(); ++goalIter)
+                            {
+                                //Check if this start has been pruned
+                                if ((*goalIter)->isPruned() == true)
+                                {
+                                    //It has, remove from the list. erase returns the next iterator
+                                    goalIter = goalVertices_.erase(goalIter);
+                                }
+                                //No else, this goal is still valid.
+                            }
+                        }
+                        //No else, can't prune 1 goal.
+                    }
+                    //No else, if we didn't prune and vertices, we can't have changed a start/goal
                 }
                 //No else, it's not worth the work to prune...
             }
             //No else, why was I called?
 
-            return rval;
+            return vertexPruned;
         }
 
 
@@ -853,11 +925,11 @@ namespace ompl
             pathGeoPtr = boost::make_shared<ompl::geometric::PathGeometric>(Planner::si_);
 
             //Iterate up the chain from the goal, creating a backwards vector:
-            for(VertexConstPtr vertex = goalVertex_; vertex != startVertex_; vertex = vertex->getParentConst())
+            reversePath.push_back(curGoalVertex_);
+            for(VertexConstPtr vertex = curGoalVertex_->getParentConst(); vertex->hasParent() == true; vertex = vertex->getParentConst())
             {
-                reversePath.push_back(vertex);
+                reversePath.push_back(vertex->getParentConst());
             }
-            reversePath.push_back(startVertex_);
 
             //Now iterate that vector in reverse, putting the states into the path geometric
             for (std::vector<VertexConstPtr>::const_reverse_iterator vIter = reversePath.rbegin(); vIter != reversePath.rend(); ++vIter)
@@ -964,19 +1036,8 @@ namespace ompl
                 this->addVertex(newEdge.second, removeFromFree);
             }
 
-            //If the stored solution cost or solution length has changed, we update the info about the goal vertex:
-            //Is it connected yet?
-            if (goalVertex_->isInTree() == true)
-            {
-                //Is the stored info out of date?
-                if (this->isCostEquivalentTo(goalVertex_->getCost(), bestCost_) == false || (goalVertex_->getDepth() + 1u) != bestLength_)
-                {
-                    //Update the info about the goal vertex
-                    this->updateGoalVertex();
-                }
-                //No else, this edge didn't improve the solution. Don't worry little edge, I'm sure you'll still be useful.
-            }
-            //No else, the goal isn't in the tree yet
+            //If the stored solution cost or solution length has changed, we may need to update the info about the goal vertex:
+            this->updateGoalVertex();
         }
 
 
@@ -1017,31 +1078,88 @@ namespace ompl
 
         void BITstar::updateGoalVertex()
         {
-            //We have a better solution!
-            if (hasSolution_ == false)
+            //Variable
+            //The better goal, be pessimistic and start as null
+            VertexPtr updatedGoal;
+            //The better cost, start as the current bestCost_
+            ompl::base::Cost updatedCost = bestCost_;
+
+            //Iterate through the list of goals, and see if the solution has changed
+            for (std::list<VertexPtr>::const_iterator gIter = goalVertices_.begin(); gIter != goalVertices_.end(); ++gIter)
             {
-                approximateSoln_ = false;
-                approximateDiff_ = -1.0;
+                //First, is this goal even in the tree?
+                if ((*gIter)->isInTree() == true)
+                {
+                    //Next, is there currently a solution?
+                    if (static_cast<bool>(curGoalVertex_) == true)
+                    {
+                        //There is preexisting solution, is this the same goal?
+                        if (*gIter == curGoalVertex_)
+                        {
+                            //We meet again! Has it changed? We check the length as sometimes the path length changes with minimal change in cost.
+                            if (this->isCostBetterThan((*gIter)->getCost(), updatedCost) == false || ((*gIter)->getDepth() + 1u) != bestLength_)
+                            {
+                                //The path to the current best goal has changed, so we need to update it:
+                                updatedGoal = *gIter;
+                                updatedCost = updatedGoal->getCost();
+                            }
+                            //No else, no change
+                        }
+                        else
+                        {
+                            //Another solution, but is it better?
+                            if (this->isCostBetterThan((*gIter)->getCost(), updatedCost) == true)
+                            {
+                                //It is! Save this as a better goal:
+                                updatedGoal = *gIter;
+                                updatedCost = updatedGoal->getCost();
+                            }
+                            //No else, not a better solution
+                        }
+                    }
+                    else
+                    {
+                        //There isn't a preexisting solution, that means that this goal is an update:
+                        updatedGoal = *gIter;
+                        updatedCost = updatedGoal->getCost();
+                    }
+                }
+                //No else, can't be a better solution if it's not in the spanning tree, can it?
             }
 
-            //Mark that we have a solution
-            hasSolution_ = true;
-            intQueue_->hasSolution();
+            //Did we update the goal?
+            if (static_cast<bool>(updatedGoal) == true)
+            {
+                //We have a better solution!
+                if (hasSolution_ == false)
+                {
+                    approximateSoln_ = false;
+                    approximateDiff_ = -1.0;
+                }
 
-            //Update the best cost:
-            bestCost_ = goalVertex_->getCost();
+                //Mark that we have a solution
+                hasSolution_ = true;
+                intQueue_->hasSolution();
 
-            //and best length
-            bestLength_ = goalVertex_->getDepth() + 1u;
+                //Store the current goal
+                curGoalVertex_ = updatedGoal;
 
-            //Update the queue threshold:
-            intQueue_->setThreshold(bestCost_);
+                //Update the best cost:
+                bestCost_ = curGoalVertex_->getCost();
 
-            //Stop the solution loop if enabled:
-            stopLoop_ = stopOnSolnChange_ ;
+                //and best length
+                bestLength_ = curGoalVertex_->getDepth() + 1u;
 
-            //Brag:
-            this->goalMessage();
+                //Update the queue threshold:
+                intQueue_->setThreshold(bestCost_);
+
+                //Stop the solution loop if enabled:
+                stopLoop_ = stopOnSolnChange_ ;
+
+                //Brag:
+                this->goalMessage();
+            }
+            //No else, the goal didn't change
         }
 
 
@@ -1174,7 +1292,19 @@ namespace ompl
 
         ompl::base::Cost BITstar::costToComeHeuristic(const VertexPtr& vertex) const
         {
-            return opt_->motionCostHeuristic(startVertex_->state(), vertex->state());
+            //Variable
+            //The current best cost to the state, initialize to infinity
+            ompl::base::Cost curBest = opt_->infiniteCost();
+
+            //Iterate over the list of starts, finding the minimum estimated cost-to-come to the state
+            for (std::list<VertexPtr>::const_iterator startIter = startVertices_.begin(); startIter != startVertices_.end(); ++startIter)
+            {
+                //Update the cost-to-come as the better of the best so far and the new one
+                curBest = this->betterCost(curBest, opt_->motionCostHeuristic((*startIter)->state(), vertex->state()));
+            }
+
+            //Return
+            return curBest;
         }
 
 
@@ -1188,8 +1318,19 @@ namespace ompl
 
         ompl::base::Cost BITstar::costToGoHeuristic(const VertexPtr& vertex) const
         {
-            //opt_->costToGo(vertex->state(), Planner::pdef_->getGoal().get());
-            return opt_->motionCostHeuristic(vertex->state(), goalVertex_->state());
+            //Variable
+            //The current best cost to a goal from the state, initialize to infinity
+            ompl::base::Cost curBest = opt_->infiniteCost();
+
+            //Iterate over the list of goals, finding the minimum estimated cost-to-go from the state
+            for (std::list<VertexPtr>::const_iterator goalIter = goalVertices_.begin(); goalIter != goalVertices_.end(); ++goalIter)
+            {
+                //Update the cost-to-go as the better of the best so far and the new one
+                curBest = this->betterCost(curBest, opt_->motionCostHeuristic(vertex->state(), (*goalIter)->state()));
+            }
+
+            //Return
+            return curBest;
         }
 
 
