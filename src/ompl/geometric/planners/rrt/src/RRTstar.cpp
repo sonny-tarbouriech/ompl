@@ -32,12 +32,16 @@
 *  POSSIBILITY OF SUCH DAMAGE.
 *********************************************************************/
 
-/* Authors: Alejandro Perez, Sertac Karaman, Ryan Luna, Luis G. Torres, Ioan Sucan, Javier V Gomez */
+/* Authors: Alejandro Perez, Sertac Karaman, Ryan Luna, Luis G. Torres, Ioan Sucan, Javier V Gomez, Jonathan Gammell */
 
 #include "ompl/geometric/planners/rrt/RRTstar.h"
 #include "ompl/base/goals/GoalSampleableRegion.h"
 #include "ompl/tools/config/SelfConfig.h"
 #include "ompl/base/objectives/PathLengthOptimizationObjective.h"
+#include "ompl/base/Goal.h"
+#include "ompl/base/goals/GoalState.h"
+#include "ompl/util/GeometricEquations.h"
+#include "ompl/base/samplers/InformedStateSampler.h"
 #include <algorithm>
 #include <limits>
 #include <boost/math/constants/constants.hpp>
@@ -46,11 +50,19 @@ ompl::geometric::RRTstar::RRTstar(const base::SpaceInformationPtr &si) :
     base::Planner(si, "RRTstar"),
     goalBias_(0.05),
     maxDistance_(0.0),
+    useKNearest_(true),
+    rewireFactor_(1.1),
+    k_rrg_(0u),
+    r_rrg_(0.0),
     delayCC_(true),
     lastGoalMotion_(NULL),
     prune_(false),
     pruneStatesThreshold_(0.95),
-    iterations_(0),
+    useInformedSampling_(false),
+    numInfAttempts_ (1000u),
+    numVerticesWorseThanSoln_(0u),
+    iterations_(0u),
+    collisionChecks_(0u),
     bestCost_(std::numeric_limits<double>::quiet_NaN())
 {
     specs_.approximateSolutions = true;
@@ -59,12 +71,18 @@ ompl::geometric::RRTstar::RRTstar(const base::SpaceInformationPtr &si) :
 
     Planner::declareParam<double>("range", this, &RRTstar::setRange, &RRTstar::getRange, "0.:1.:10000.");
     Planner::declareParam<double>("goal_bias", this, &RRTstar::setGoalBias, &RRTstar::getGoalBias, "0.:.05:1.");
+    Planner::declareParam<double>("rewire_factor", this, &RRTstar::setRewireFactor, &RRTstar::getRewireFactor, "1.0:0.01:2.0");
+    Planner::declareParam<bool>("use_k_nearest", this, &RRTstar::setKNearest, &RRTstar::getKNearest, "0,1");
     Planner::declareParam<bool>("delay_collision_checking", this, &RRTstar::setDelayCC, &RRTstar::getDelayCC, "0,1");
     Planner::declareParam<bool>("prune", this, &RRTstar::setPrune, &RRTstar::getPrune, "0,1");
     Planner::declareParam<double>("prune_states_threshold", this, &RRTstar::setPruneStatesImprovementThreshold, &RRTstar::getPruneStatesImprovementThreshold, "0.:.01:1.");
+    Planner::declareParam<bool>("informed_rrtstar", this, &RRTstar::setInformedSampling, &RRTstar::getInformedSampling, "0,1");
+    Planner::declareParam<bool>("number_informed_attempts", this, &RRTstar::setInformedSamplingAttempts, &RRTstar::getInformedSamplingAttempts, "10:10:100000");
 
     addPlannerProgressProperty("iterations INTEGER",
                                boost::bind(&RRTstar::getIterationCount, this));
+    addPlannerProgressProperty("collision checks INTEGER",
+                               boost::bind(&RRTstar::getCollisionCheckCount, this));
     addPlannerProgressProperty("best cost REAL",
                                boost::bind(&RRTstar::getBestCost, this));
 }
@@ -101,6 +119,16 @@ void ompl::geometric::RRTstar::setup()
         {
             OMPL_INFORM("%s: No optimization objective specified. Defaulting to optimizing path length for the allowed planning time.", getName().c_str());
             opt_.reset(new base::PathLengthOptimizationObjective(si_));
+
+            if (opt_->hasCostToGoHeuristic() == false && (pdef_->getGoal()->hasType(base::GOAL_STATE) == true || pdef_->getGoal()->hasType(base::GOAL_REGION) == true) )
+            {
+                OMPL_INFORM("%s: No cost-to-go heuristic set. Defaulting to the motion cost between the state and goal.", getName().c_str());
+                //Bind to the SpaceInformation member function "distance" belonging to the si_ pointer.
+                opt_->setCostToGoHeuristic( boost::bind(&RRTstar::defaultCostToGoHeuristic, this, _1, _2) );
+            }
+
+            //Store it back into the problem def'n
+            pdef_->setOptimizationObjective(opt_);
         }
     }
     else
@@ -108,12 +136,29 @@ void ompl::geometric::RRTstar::setup()
         OMPL_INFORM("%s: problem definition is not set, deferring setup completion...", getName().c_str());
         setup_ = false;
     }
+
+    //Allocate a sampler.
+    allocSampler();
+
+    //Calculate some constants:
+    double dimDbl        = (double)si_->getStateDimension();
+
+    // k_rrg > e+e/d.  K-nearest RRT*
+    k_rrg_ = rewireFactor_*(boost::math::constants::e<double>() + (boost::math::constants::e<double>() / dimDbl));
+
+    // r_rrg > 2*(1+1/d)^(1/d)*(measure/ballvolume)^(1/d)
+    r_rrg_ = rewireFactor_*2.0*std::pow((1.0 + 1.0/dimDbl)*(si_->getSpaceMeasure()/unitNBallMeasure(si_->getStateDimension())), 1.0/dimDbl);
+
+    //Set the bestCost_ as infinite
+    bestCost_ = opt_->infiniteCost();
 }
 
 void ompl::geometric::RRTstar::clear()
 {
+    setup_ = false;
     Planner::clear();
     sampler_.reset();
+    infSampler_.reset();
     freeMemory();
     if (nn_)
         nn_->clear();
@@ -122,6 +167,7 @@ void ompl::geometric::RRTstar::clear()
     goalMotions_.clear();
 
     iterations_ = 0;
+    collisionChecks_ = 0;
     bestCost_ = base::Cost(std::numeric_limits<double>::quiet_NaN());
 }
 
@@ -142,16 +188,13 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
         startMotion_ = motion;
     }
 
-    if (nn_->size() == 0)
+    if (nn_->size() - numVerticesWorseThanSoln_ == 0)
     {
         OMPL_ERROR("%s: There are no valid initial states!", getName().c_str());
         return base::PlannerStatus::INVALID_START;
     }
 
-    if (!sampler_)
-        sampler_ = si_->allocStateSampler();
-
-    OMPL_INFORM("%s: Starting planning with %u states already in datastructure", getName().c_str(), nn_->size());
+    OMPL_INFORM("%s: Starting planning with %u states already in datastructure", getName().c_str(), nn_->size() - numVerticesWorseThanSoln_);
 
     if (prune_ && !si_->getStateSpace()->isMetricSpace())
         OMPL_WARN("%s: tree pruning was activated but since the state space %s is not a metric space, "
@@ -162,12 +205,6 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
 
     Motion *solution       = lastGoalMotion_;
 
-    // \todo Make this variable unnecessary, or at least have it
-    // persist across solve runs
-    base::Cost bestCost    = opt_->infiniteCost();
-
-    bestCost_ = opt_->infiniteCost();
-
     Motion *approximation  = NULL;
     double approximatedist = std::numeric_limits<double>::infinity();
     bool sufficientlyShort = false;
@@ -175,10 +212,6 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
     Motion *rmotion        = new Motion(si_);
     base::State *rstate    = rmotion->state;
     base::State *xstate    = si_->allocState();
-
-    // e+e/d.  K-nearest RRT*
-    double k_rrg           = boost::math::constants::e<double>() +
-                             (boost::math::constants::e<double>() / (double)si_->getStateSpace()->getDimension());
 
     std::vector<Motion*>       nbh;
 
@@ -192,7 +225,11 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
 
     if (solution)
         OMPL_INFORM("%s: Starting planning with existing solution of cost %.5f", getName().c_str(), solution->cost.value());
-    OMPL_INFORM("%s: Initial k-nearest value of %u", getName().c_str(), (unsigned int)std::ceil(k_rrg * log((double)(nn_->size() + 1))));
+
+    if (useKNearest_)
+        OMPL_INFORM("%s: Initial k-nearest value of %u", getName().c_str(), (unsigned int)std::ceil(k_rrg_ * log((double)(nn_->size() - numVerticesWorseThanSoln_ + 1u))));
+    else
+        OMPL_INFORM("%s: Initial rewiring radius of %.2f", getName().c_str(), std::min(maxDistance_, r_rrg_*std::pow(log((double)(nn_->size() - numVerticesWorseThanSoln_ + 1u))/((double)(nn_->size() - numVerticesWorseThanSoln_ + 1u)), 1/(double)(si_->getStateDimension()))));
 
     // our functor for sorting nearest neighbors
     CostIndexCompare compareFn(costs, *opt_);
@@ -207,9 +244,9 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
             goal_s->sampleGoal(rstate);
         else
         {
-            sampler_->sampleUniform(rstate);
+            sampleUniform(rstate);
 
-            if (prune_ && opt_->isCostBetterThan(bestCost_, costToGo(rmotion)))
+            if (prune_ && opt_->isCostBetterThan(bestCost_, solutionHeuristic(rmotion)))
                 continue;
         }
 
@@ -230,6 +267,7 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
         }
 
         // Check if the motion between the nearest state and the state to add is valid
+        ++collisionChecks_;
         if (si_->checkMotion(nmotion->state, dstate))
         {
             // create a motion
@@ -239,9 +277,9 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
             motion->incCost = opt_->motionCost(nmotion->state, motion->state);
             motion->cost = opt_->combineCosts(nmotion->cost, motion->incCost);
 
-            // Find nearby neighbors of the new motion - k-nearest RRT*
-            unsigned int k = std::ceil(k_rrg * log((double)(nn_->size() + 1)));
-            nn_->nearestK(motion, k, nbh);
+            // Find nearby neighbors of the new motion
+            getNeighbors(motion, nbh);
+
             rewireTest += nbh.size();
             statesGenerated++;
 
@@ -295,6 +333,7 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
                      i != sortedCostIndices.begin() + nbh.size();
                      ++i)
                 {
+                    ++collisionChecks_;
                     if (nbh[*i] == nmotion || si_->checkMotion(nbh[*i]->state, motion->state))
                     {
                         motion->incCost = incCosts[*i];
@@ -319,6 +358,7 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
                         costs[i] = opt_->combineCosts(nbh[i]->cost, incCosts[i]);
                         if (opt_->isCostBetterThan(costs[i], motion->cost))
                         {
+                            ++collisionChecks_;
                             if (si_->checkMotion(nbh[i]->state, motion->state))
                             {
                                 motion->incCost = incCosts[i];
@@ -340,7 +380,7 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
 
             if (prune_)
             {
-                if (opt_->isCostBetterThan(costToGo(motion, false), bestCost_))
+                if (opt_->isCostBetterThan(solutionHeuristic(motion, false), bestCost_))
                 {
                     nn_->add(motion);
                     motion->parent->children.push_back(motion);
@@ -375,9 +415,14 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
                     {
                         bool motionValid;
                         if (valid[i] == 0)
+                        {
+                            ++collisionChecks_;
                             motionValid = si_->checkMotion(motion->state, nbh[i]->state);
+                        }
                         else
+                        {
                             motionValid = (valid[i] == 1);
+                        }
 
                         if (motionValid)
                         {
@@ -413,20 +458,23 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
                 bool updatedSolution = false;
                 for (size_t i = 0; i < goalMotions_.size(); ++i)
                 {
-                    if (opt_->isCostBetterThan(goalMotions_[i]->cost, bestCost))
+                    if (opt_->isCostBetterThan(goalMotions_[i]->cost, bestCost_))
                     {
-                        bestCost = goalMotions_[i]->cost;
-                        bestCost_ = bestCost;
+                        if (std::isfinite(bestCost_.value()) == false)
+                        {
+                            OMPL_INFORM("%s: Found an initial solution with a cost of %.2f in %u iterations (%u vertices)", getName().c_str(), goalMotions_[i]->cost, iterations_, nn_->size() - numVerticesWorseThanSoln_);
+                        }
+                        bestCost_ = goalMotions_[i]->cost;
                         updatedSolution = true;
                     }
 
                     sufficientlyShort = opt_->isSatisfied(goalMotions_[i]->cost);
                     if (sufficientlyShort)
-                     {
-                         solution = goalMotions_[i];
-                         break;
-                     }
-                     else if (!solution ||
+                    {
+                        solution = goalMotions_[i];
+                        break;
+                    }
+                    else if (!solution ||
                          opt_->isCostBetterThan(goalMotions_[i]->cost,solution->cost))
                     {
                         solution = goalMotions_[i];
@@ -436,6 +484,18 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
 
                 if (updatedSolution)
                 {
+                    if (useInformedSampling_ == true)
+                    {
+                        // "Prune" the problem:
+                        countNumberOfVerticesWorseThanSoln();
+
+                        // If we're using an r-disc, we now need to update the r-disc constant term:
+                        if (useKNearest_ == false)
+                        {
+                            r_rrg_ = rewireFactor_*2.0*std::pow((1.0 + 1.0/(double)(si_->getStateDimension()))*(infSampler_->getInformedMeasure(bestCost_)/unitNBallMeasure(si_->getStateDimension())), 1.0/(double)(si_->getStateDimension()));
+                        }
+                    }
+
                     if (prune_)
                     {
                         int n = pruneTree(bestCost_);
@@ -501,7 +561,7 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
         if (approximate)
             psol.setApproximate(approximatedist);
         // Does the solution satisfy the optimization objective?
-        psol.setOptimized(opt_, bestCost, sufficientlyShort);
+        psol.setOptimized(opt_, bestCost_, sufficientlyShort);
         pdef_->addSolutionPath(psol);
 
         addedSolution = true;
@@ -512,20 +572,37 @@ ompl::base::PlannerStatus ompl::geometric::RRTstar::solve(const base::PlannerTer
         si_->freeState(rmotion->state);
     delete rmotion;
 
-    OMPL_INFORM("%s: Created %u new states. Checked %u rewire options. %u goal states in tree.", getName().c_str(), statesGenerated, rewireTest, goalMotions_.size());
+    OMPL_INFORM("%s: Created %u new states. Checked %u rewire options. %u goal states in tree. Final solution cost %.3f", getName().c_str(), statesGenerated, rewireTest, goalMotions_.size(), bestCost_);
 
     return base::PlannerStatus(addedSolution, approximate);
+}
+
+void ompl::geometric::RRTstar::getNeighbors(Motion *motion, std::vector<Motion*> &nbh)
+{
+    if (useKNearest_)
+    {
+        //- k-nearest RRT*
+        unsigned int k = std::ceil(k_rrg_ * log((double)(nn_->size() - numVerticesWorseThanSoln_ + 1u)));
+        nn_->nearestK(motion, k, nbh);
+    }
+    else
+    {
+        double r = std::min(maxDistance_, r_rrg_*std::pow(log((double)(nn_->size() - numVerticesWorseThanSoln_ + 1u))/((double)(nn_->size() - numVerticesWorseThanSoln_ + 1u)), 1/(double)(si_->getStateDimension())));
+        nn_->nearestR(motion, r, nbh);
+    }
 }
 
 void ompl::geometric::RRTstar::removeFromParent(Motion *m)
 {
     for (std::vector<Motion*>::iterator it = m->parent->children.begin ();
         it != m->parent->children.end (); ++it)
+    {
         if (*it == m)
         {
             m->parent->children.erase(it);
             break;
         }
+    }
 }
 
 void ompl::geometric::RRTstar::updateChildCosts(Motion *m)
@@ -586,7 +663,7 @@ int ompl::geometric::RRTstar::pruneTree(const base::Cost pruneTreeCost)
     while (j != pruneScratchSpace_.candidates.size())
     {
         Motion *candidate = pruneScratchSpace_.candidates[j++];
-        if (opt_->isCostBetterThan(pruneTreeCost, costToGo(candidate)))
+        if (opt_->isCostBetterThan(pruneTreeCost, solutionHeuristic(candidate)))
             pruneScratchSpace_.toBePruned.push_back(candidate);
         else
         {
@@ -632,14 +709,112 @@ void ompl::geometric::RRTstar::deleteBranch(Motion *motion)
     }
 }
 
-ompl::base::Cost ompl::geometric::RRTstar::costToGo(const Motion *motion, const bool shortest) const
+ompl::base::Cost ompl::geometric::RRTstar::defaultCostToGoHeuristic(const base::State *state, const base::Goal *goal) const
+{
+    if (pdef_->getGoal()->hasType(base::GOAL_STATE) == true)
+    {
+        return opt_->motionCost(state, goal->as<base::GoalState>()->getState());
+    }
+    else if (pdef_->getGoal()->hasType(base::GOAL_REGION) == true)
+    {
+        return base::goalRegionCostToGo(state, goal);
+    }
+    else
+    {
+        throw Exception("Default cost-to-go heuristic is only defined for a goal state and goal regions.");
+    }
+}
+
+ompl::base::Cost ompl::geometric::RRTstar::solutionHeuristic(const Motion *motion, const bool estimate) const
 {
     base::Cost costToCome;
-    if (shortest)
+    if (estimate)
         costToCome = opt_->motionCost(startMotion_->state, motion->state); // h_s
     else
         costToCome = motion->cost; //d_s
 
-    const base::Cost costToGo = base::goalRegionCostToGo(motion->state, pdef_->getGoal().get()); // h_g
+    const base::Cost costToGo = defaultCostToGoHeuristic(motion->state, pdef_->getGoal().get()); // h_g
     return opt_->combineCosts(costToCome, costToGo); // h_s + h_g
+}
+
+void ompl::geometric::RRTstar::countNumberOfVerticesWorseThanSoln()
+{
+    // Variable
+    // The list of data in the nearest neighbours struct
+    std::vector<Motion*> data;
+
+    // Get the list
+    nn_->list(data);
+
+    // Reset the counter:
+    numVerticesWorseThanSoln_ = 0u;
+    for (unsigned int i = 0u; i < data.size(); ++i)
+    {
+        // Variable
+        // The heuristic estimate of a solution constrained to go through the state
+        base::Cost solnHeuristic;
+
+        // Calculate the heuristic value:
+        solnHeuristic = infSampler_->heuristicSolnCost(data.at(i)->state);
+
+        // Check if this vertex cannot improve the solution
+        if (opt_->isCostBetterThan(bestCost_, solnHeuristic))
+        {
+            // Increment the counter:
+            ++numVerticesWorseThanSoln_;
+        }
+        // No else
+    }
+}
+
+void ompl::geometric::RRTstar::setInformedSampling(bool informedSampling)
+{
+    // Store the setting. We only want to create a new sampler if it has changed, but we do it in 2 if-steps so that we can also check if we have a planner yet...
+    if (informedSampling != useInformedSampling_)
+    {
+        useInformedSampling_ = informedSampling;
+
+        // If we currently have a planner, we need to make a new one
+        if(sampler_)
+        {
+            // Reset the samplers
+            sampler_.reset();
+            infSampler_.reset();
+
+            // Create the sampler
+            allocSampler();
+        }
+    }
+}
+
+void ompl::geometric::RRTstar::allocSampler()
+{
+    // Allocate a regular sampler, as in some cases the informed sampler may fall back to it
+    sampler_ = si_->allocStateSampler();
+
+    // If using the informed sampler, allocate one of those too
+    if (useInformedSampling_)
+    {
+        OMPL_INFORM("%s: Using informed sampling.", getName().c_str());
+        infSampler_ = opt_->allocInformedStateSampler(pdef_, numInfAttempts_);
+    }
+}
+
+void ompl::geometric::RRTstar::sampleUniform(base::State *statePtr)
+{
+    // Check if we're using informed sampling or not
+    if (!useInformedSampling_)
+    {
+        // We are not, simple return a state from the regular sampler
+        sampler_->sampleUniform(statePtr);
+    }
+    else
+    {
+        // We are, attempt the informed sampler
+        if (infSampler_->sampleUniform(statePtr, bestCost_) == false)
+        {
+            //The informed sampler failed, generate a regular sample:
+            sampler_->sampleUniform(statePtr);
+        }
+    }
 }
