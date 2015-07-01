@@ -98,7 +98,7 @@ namespace ompl
 
 
 
-        void BITstar::IntegratedQueue::eraseVertex(const VertexPtr& oldVertex, bool disconnectParent)
+        void BITstar::IntegratedQueue::eraseVertex(const VertexPtr& oldVertex, bool disconnectParent, const VertexPtrNNPtr& vertexNN, const VertexPtrNNPtr& freeStateNN)
         {
             //If requested, disconnect from parent, cascading cost updates:
             if (disconnectParent == true)
@@ -106,8 +106,8 @@ namespace ompl
                 this->disconnectParent(oldVertex, true);
             }
 
-            //Remove it from vertx queue and lookup, and edge queues (as requested):
-            this->vertexRemoveHelper(oldVertex, VertexPtrNNPtr(), VertexPtrNNPtr(), true);
+            //Remove it from vertex queue and lookup, and edge queues (as requested):
+            this->vertexRemoveHelper(oldVertex, vertexNN, freeStateNN, true);
         }
 
 
@@ -216,6 +216,13 @@ namespace ompl
         void BITstar::IntegratedQueue::setThreshold(const ompl::base::Cost& costThreshold)
         {
             costThreshold_ = costThreshold;
+        }
+
+
+
+        ompl::base::Cost BITstar::IntegratedQueue::getThreshold() const
+        {
+            return costThreshold_;
         }
 
 

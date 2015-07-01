@@ -264,6 +264,9 @@ namespace ompl
 
             ///////////////////////////////////////////////////////////////////
             //Helper functions for data manipulation and other low-level functions
+            /** \brief Prune the starts and goals that have a solution heuristic that is not less than bestCost_ */
+            void pruneStartsGoals();
+
             /** \brief Prune all samples with a solution heuristic that is not less than the bestCost_ */
             void pruneSamples();
 

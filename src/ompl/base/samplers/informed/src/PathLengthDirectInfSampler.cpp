@@ -37,8 +37,8 @@
 #include "ompl/base/samplers/informed/PathLengthDirectInfSampler.h"
 #include "ompl/util/Exception.h"
 #include "ompl/base/OptimizationObjective.h"
-#include "ompl/base/goals/GoalState.h"
-#include "ompl/base/goals/GoalStates.h"
+//For ompl::base::GoalSampleableRegion, which both GoalState and GoalStates derive from:
+#include "ompl/base/goals/GoalSampleableRegion.h"
 #include "ompl/base/StateSpace.h"
 #include "ompl/base/spaces/RealVectorStateSpace.h"
 
@@ -65,29 +65,20 @@ namespace ompl
             unsigned int numStarts;
             // The number of goal states
             unsigned numGoals;
-            // The foci of the PHSs as a std::vector of states:
+            // The foci of the PHSs as a std::vector of states. Goals must be nonconst, as we need to allocate them (unfortunately):
             std::vector<const State*> startStates;
-            std::vector<const State*> goalStates;
+            std::vector<State*> goalStates;
 
-            if (probDefn_->getGoal()->hasType(GOAL_STATE) == false && probDefn_->getGoal()->hasType(GOAL_STATES) == false)
+            if (probDefn_->getGoal()->hasType(ompl::base::GOAL_SAMPLEABLE_REGION) == false)
             {
-                throw Exception("PathLengthDirectInfSampler: The direct path-length informed sampler currently only supports goals that can be cast to goal state(s).");
+                throw Exception("PathLengthDirectInfSampler: The direct path-length informed sampler currently only supports goals that can be cast to a sampleable goal region (i.e., are countable sets).");
             }
 
-            /// \todo We don't check for the cost-to-go heuristic in the optimization objective, as this direct sampling is for Euclidean distance.
+            /// \todo We don't check for the cost-to-go heuristic in the optimization objective, as this direct sampling is only for Euclidean distance.
 
-            // Store the number of starts
+            // Store the number of starts and goals
             numStarts = probDefn_->getStartStateCount();
-
-            // And the number of goals:
-            if (probDefn_->getGoal()->hasType(GOAL_STATES) == true)
-            {
-                numGoals = probDefn_->getGoal()->as<GoalStates>()->getStateCount();
-            }
-            else
-            {
-                numGoals = 1u;
-            }
+            numGoals = probDefn_->getGoal()->as<ompl::base::GoalSampleableRegion>()->maxSampleCount();
 
             // Sanity check that there is atleast one of each
             if (numStarts < 1u || numGoals < 1u)
@@ -190,22 +181,17 @@ namespace ompl
             }
 
 
-            // By virtue of the earlier check, we know that the goal is either a state or a set of states. Check
-            if (numGoals > 1u)
+            // Extract the state of each goal one and place into the goal vector!
+            for (unsigned int i = 0u; i < numGoals; ++i)
             {
-                // The goal is a countable set of goals, extract the state of each one and place in the goal vector!
-                for (unsigned int i = 0u; i < numGoals; ++i)
-                {
-                    goalStates.push_back(probDefn_->getGoal()->as<GoalStates>()->getState(i));
-                }
-            }
-            else
-            {
-                // It is not a set of states, so therefore it must be a single state:
-                goalStates.push_back(probDefn_->getGoal()->as<GoalState>()->getState());
+                // Allocate a state onto the back of the vector:
+                goalStates.push_back(InformedSampler::space_->allocState());
+
+                // Now sample a goal into that state:
+                probDefn_->getGoal()->as<ompl::base::GoalSampleableRegion>()->sampleGoal(goalStates.back());
             }
 
-            // No, iterate create a PHS for each start-goal pair
+            // Now, iterate create a PHS for each start-goal pair
             // Each start
             for (unsigned int i = 0u; i < numStarts; ++i)
             {
@@ -223,6 +209,18 @@ namespace ompl
                     // Create the definition of the PHS
                     listPhsPtrs_.push_back(boost::make_shared<ProlateHyperspheroid>(informedSubSpace_->getDimension(), &startFocusVector[0], &goalFocusVector[0]));
                 }
+            }
+
+            // Finally deallocate the states in the goal state vector:
+            for (unsigned int i = 0u; i < numGoals; ++i)
+            {
+                // Free the state in the vector:
+                InformedSampler::space_->freeState(goalStates.at(i));
+            }
+
+            if (listPhsPtrs_.size() > 100u)
+            {
+                OMPL_WARN("PathLengthDirectInfSampler: Rejection sampling is used in order to maintain uniform density in the presence of overlapping informed subsets. At some number of independent subsets, this will become prohibitively expensive.");
             }
         }
 
@@ -292,7 +290,12 @@ namespace ompl
             // The informed measure is then the sum of the measure of the individual PHSs for the given cost:
             for (std::list<ompl::ProlateHyperspheroidPtr>::const_iterator phsIter = listPhsPtrs_.begin(); phsIter != listPhsPtrs_.end(); ++phsIter)
             {
-                informedMeasure = informedMeasure + (*phsIter)->getPhsMeasure(currentCost.value());
+                //It is nonsensical for a PHS to have a transverse diameter less than the distance between its foci, so skip those that do
+                if (currentCost.value() > (*phsIter)->getMinTransverseDiameter())
+                {
+                    informedMeasure = informedMeasure + (*phsIter)->getPhsMeasure(currentCost.value());
+                }
+                //No else, this value is better than this ellipse. It will get removed later.
             }
 
             // And if the space is compound, further multiplied by the measure of the uniformed subspace
@@ -629,6 +632,7 @@ namespace ompl
                     // It can't, remove it
 
                     // Remove the iterator to delete from the list, this returns the next:
+                    /// \todo Make sure this doesn't cause problems for JIT sampling?
                     phsIter = listPhsPtrs_.erase(phsIter);
                 }
             }

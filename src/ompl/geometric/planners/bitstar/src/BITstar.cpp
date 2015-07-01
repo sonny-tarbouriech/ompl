@@ -56,10 +56,8 @@
 #include "ompl/util/Exception.h"
 //For geometric equations like unitNBallMeasure
 #include "ompl/util/GeometricEquations.h"
-//For ompl::base::GoalState:
-#include "ompl/base/goals/GoalState.h"
-//For ompl::base::GoalStates:
-#include "ompl/base/goals/GoalStates.h"
+//For ompl::base::GoalSampleableRegion, which both GoalState and GoalStates derive from:
+#include "ompl/base/goals/GoalSampleableRegion.h"
 //For getDefaultNearestNeighbors
 #include "ompl/tools/config/SelfConfig.h"
 //For ompl::geometric::path
@@ -196,6 +194,14 @@ namespace ompl
                 Planner::pdef_->setOptimizationObjective( boost::make_shared<base::PathLengthOptimizationObjective> (Planner::si_) );
             }
 
+            //Make sure the planning problem is an appropriate goal type
+            if (Planner::pdef_->getGoal()->hasType(ompl::base::GOAL_SAMPLEABLE_REGION) == false)
+            {
+                OMPL_ERROR("%s::setup() BIT* currently only supports goals that can be cast to a sampleable goal region (i.e., are countable sets).", Planner::getName().c_str());
+                Planner::setup_ = false;
+                return;
+            }
+
             //Store the optimization objective for future ease of use
             opt_ = Planner::pdef_->getOptimizationObjective();
 
@@ -227,36 +233,14 @@ namespace ompl
                 Planner::si_->copyState(startVertices_.back()->state(), Planner::pdef_->getStartState(i));
             }
 
-            //Create the goal vertices, depending on goal type.
-            if (Planner::pdef_->getGoal()->hasType(ompl::base::GOAL_STATE) == true)
+            //Create the goal vertices by casting to GoalSampleableRegion and iterating over every sample:
+            for (unsigned int i = 0u; i < Planner::pdef_->getGoal()->as<ompl::base::GoalSampleableRegion>()->maxSampleCount(); ++i)
             {
-                //The goal is of type GOAL_STATE, which means there is only one goal. Easy!
-
                 //Allocate the vertex pointer
                 goalVertices_.push_back(boost::make_shared<Vertex>(Planner::si_, opt_));
 
                 //Copy the value into the state
-                Planner::si_->copyState(goalVertices_.back()->state(), Planner::pdef_->getGoal()->as<ompl::base::GoalState>()->getState());
-            }
-            else if (Planner::pdef_->getGoal()->hasType(ompl::base::GOAL_STATES) == true)
-            {
-                //The goal is of type GOAL_STATES, which means there is a countable number of goals. Kinda easy.
-
-                //Iterate over the list of goal states
-                for (unsigned int i = 0u; i < Planner::pdef_->getGoal()->as<ompl::base::GoalStates>()->getStateCount(); ++i)
-                {
-                    //Allocate the vertex pointer
-                    goalVertices_.push_back(boost::make_shared<Vertex>(Planner::si_, opt_));
-
-                    //Copy the value into the state
-                    Planner::si_->copyState(goalVertices_.back()->state(), Planner::pdef_->getGoal()->as<ompl::base::GoalStates>()->getState(i));
-                }
-            }
-            else
-            {
-                OMPL_ERROR("%s::setup() was called with with a goal that is not of type GoalState or GoalStates.", Planner::getName().c_str());
-                Planner::setup_ = false;
-                return;
+                Planner::pdef_->getGoal()->as<ompl::base::GoalSampleableRegion>()->sampleGoal(goalVertices_.back()->state());
             }
 
             //Configure the queue
@@ -826,11 +810,14 @@ namespace ompl
                     //Increment the pruning counter:
                     ++numPrunings_;
 
+                    //First, prune the starts/goals:
+                    this->pruneStartsGoals();
+
                     //Prune the samples
                     this->pruneSamples();
 
                     //Prune the graph. This can be done extra efficiently by using some info in the integrated queue.
-                    //This requires access to the nearest neighbour structures so vertices can be moved to free states.
+                    //This requires access to the nearest neighbour structures so vertices can be moved to free states.s
                     numPruned = intQueue_->prune(curGoalVertex_, vertexNN_, freeStateNN_);
 
                     //The number of vertices and samples pruned are incrementally updated.
@@ -845,45 +832,6 @@ namespace ompl
 
                     //Check if any states have actually been pruned
                     vertexPruned = (numPruned.second > 0u);
-
-                    //If any have been pruned, then we may have pruned a start or goal
-                    if (vertexPruned == true)
-                    {
-                        //Are there superfluous starts to prune?
-                        if (startVertices_.size() > 1u)
-                        {
-                            //Yes, Iterate through the list
-                            for (std::list<VertexPtr>::iterator startIter = startVertices_.begin(); startIter != startVertices_.end(); ++startIter)
-                            {
-                                //Check if this start has been pruned
-                                if ((*startIter)->isPruned() == true)
-                                {
-                                    //It has, remove from the list. erase returns the next iterator
-                                    startIter = startVertices_.erase(startIter);
-                                }
-                                //No else, this start is still valid
-                            }
-                        }
-                        //No else, can't prune 1 start.
-
-                        //Are there superfluous goals to prune?
-                        if (goalVertices_.size() > 1u)
-                        {
-                            //Yes, Iterate through the list
-                            for (std::list<VertexPtr>::iterator goalIter = goalVertices_.begin(); goalIter != goalVertices_.end(); ++goalIter)
-                            {
-                                //Check if this start has been pruned
-                                if ((*goalIter)->isPruned() == true)
-                                {
-                                    //It has, remove from the list. erase returns the next iterator
-                                    goalIter = goalVertices_.erase(goalIter);
-                                }
-                                //No else, this goal is still valid.
-                            }
-                        }
-                        //No else, can't prune 1 goal.
-                    }
-                    //No else, if we didn't prune and vertices, we can't have changed a start/goal
                 }
                 //No else, it's not worth the work to prune...
             }
@@ -926,9 +874,17 @@ namespace ompl
 
             //Iterate up the chain from the goal, creating a backwards vector:
             reversePath.push_back(curGoalVertex_);
-            for(VertexConstPtr vertex = curGoalVertex_->getParentConst(); vertex->hasParent() == true; vertex = vertex->getParentConst())
+            //Push back until we get to the root
+            while (reversePath.back()->isRoot() == false)
             {
-                reversePath.push_back(vertex->getParentConst());
+                //Check the case where the chain ends incorrectly. This is unnecessary but sure helpful in debugging:
+                if (reversePath.back()->hasParent() == false)
+                {
+                    OMPL_ERROR("%s: The path to the goal does not originate at a start state.", Planner::getName().c_str());
+                }
+
+                //Push back the parent onto the vector:
+                reversePath.push_back( reversePath.back()->getParentConst() );
             }
 
             //Now iterate that vector in reverse, putting the states into the path geometric
@@ -954,6 +910,92 @@ namespace ompl
 
             //Add the solution to the Problem Definition:
             Planner::pdef_->addSolutionPath(soln);
+        }
+
+
+
+        void BITstar::pruneStartsGoals()
+        {
+            //Are there superfluous starts to prune?
+            if (startVertices_.size() > 1u)
+            {
+                //Yes, Iterate through the list
+
+                //Variable
+                //The iterator to the start:
+                std::list<VertexPtr>::iterator startIter = startVertices_.begin();
+
+                //Run until at the end:
+                while (startIter != startVertices_.end())
+                {
+                    //Check if this start has met the criteria to be pruned
+                    if (intQueue_->vertexPruneCondition(*startIter)  == true)
+                    {
+                        //Update counters, by definition of the heuristics, start vertices are either in the tree or are deleted. Since we're pruning this one, that means we're going all the way to remove it:
+                        ++numVerticesDisconnected_;
+                        ++numFreeStatesPruned_;
+
+                        //It has, remove the start vertex completely, they don't have parents
+                        intQueue_->eraseVertex(*startIter, false, vertexNN_, freeStateNN_);
+
+                        //Remove from the list, this returns the next iterator
+                        startIter = startVertices_.erase(startIter);
+                    }
+                    else
+                    {
+                        //Still valid, move to the next one:
+                        ++startIter;
+                    }
+                }
+            }
+            //No else, can't prune 1 start.
+
+            //Are there superfluous goals to prune?
+            if (goalVertices_.size() > 1u)
+            {
+                //Yes, Iterate through the list
+
+                //Variable
+                //The iterator to the start:
+                std::list<VertexPtr>::iterator goalIter = goalVertices_.begin();
+
+                //Run until at the end:
+                while (goalIter != goalVertices_.end())
+                {
+                    //Check if this start has met the criteria to be pruned
+                    if (intQueue_->vertexPruneCondition(*goalIter)  == true)
+                    {
+                        //It has, remove the goal vertex completely
+                        //Check if this vertex is in the tree
+                        if ((*goalIter)->isInTree() == true)
+                        {
+                            //It is, increment the counters
+                            ++numVerticesDisconnected_;
+                            ++numFreeStatesPruned_;
+
+                            //And erase it from the queue:
+                            intQueue_->eraseVertex(*goalIter, (*goalIter)->hasParent(), vertexNN_, freeStateNN_);
+
+                            //Remove from the list, this returns the next iterator
+                            goalIter = goalVertices_.erase(goalIter);
+                        }
+                        else
+                        {
+                            //It is not, so we just delete it like a sample
+                            this->dropSample(*goalIter);
+
+                            //Remove from the list, this returns the next iterator
+                            goalIter = goalVertices_.erase(goalIter);
+                        }
+                    }
+                    else
+                    {
+                        //The goal is still valid, get the next
+                        ++goalIter;
+                    }
+                }
+            }
+            //No else, can't prune 1 goal.
         }
 
 
@@ -1036,7 +1078,7 @@ namespace ompl
                 this->addVertex(newEdge.second, removeFromFree);
             }
 
-            //If the stored solution cost or solution length has changed, we may need to update the info about the goal vertex:
+            //If the path to the goal has changed, we may need to update the cached info about the solution cost or solution length:
             this->updateGoalVertex();
         }
 
@@ -1097,7 +1139,7 @@ namespace ompl
                         if (*gIter == curGoalVertex_)
                         {
                             //We meet again! Has it changed? We check the length as sometimes the path length changes with minimal change in cost.
-                            if (this->isCostBetterThan((*gIter)->getCost(), updatedCost) == false || ((*gIter)->getDepth() + 1u) != bestLength_)
+                            if (this->isCostEquivalentTo((*gIter)->getCost(), updatedCost) == false || ((*gIter)->getDepth() + 1u) != bestLength_)
                             {
                                 //The path to the current best goal has changed, so we need to update it:
                                 updatedGoal = *gIter;

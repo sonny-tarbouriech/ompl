@@ -146,8 +146,8 @@ namespace ompl
             /** \brief Insert an edge into the edge processing queue. Edges are removed from the processing queue. This is only valid if the source vertex is already in the expansion queue (though it may already be expanded). */
             void insertEdge(const VertexPtrPair& newEdge);
 
-            /** \brief Erase a vertex from the vertex expansion queue. Will disconnect the vertex from its parent and remove the associated incoming and outgoing edges from the edge queue as requested. Assumes you've already dealt with removing from the NN structures.*/
-            void eraseVertex(const VertexPtr& oldVertex, bool disconnectParent);
+            /** \brief Erase a vertex from the vertex expansion queue. Will disconnect the vertex from its parent and remove the associated incoming and outgoing edges from the edge queue as requested.*/
+            void eraseVertex(const VertexPtr& oldVertex, bool disconnectParent, const VertexPtrNNPtr& vertexNN, const VertexPtrNNPtr& freeStateNN);
             //////////////////
 
             //////////////////
@@ -178,6 +178,9 @@ namespace ompl
 
             /** \brief Set the threshold of the queue */
             void setThreshold(const ompl::base::Cost& costThreshold);
+
+            /** \brief Get the threshold of the queue */
+            ompl::base::Cost getThreshold() const;
 
             /** \brief Erase all edges in the edge queue that lead to the given vertex */
             void removeEdgesTo(const VertexPtr& cVertex);
@@ -379,7 +382,7 @@ namespace ompl
             /** \brief Insert a vertex into the queue and lookups. Expands vertex into edges if it comes before the expansion token and expandIfBeforeToken is true. */
             void vertexInsertHelper(const VertexPtr& newVertex, bool expandIfBeforeToken);
 
-            /** \brief Remove a vertex from the queue and optionally its entries in the various lookups. */
+            /** \brief Remove a vertex from the queue and optionally its entries in the various lookups. Returns the number of vertices that are completely deleted. */
             //This is *NOT* by const-reference so that the oldVertex pointer doesn't go out of scope on me... which was happening if it was being called with an iter->second where the iter gets deleted in this function...
             unsigned int vertexRemoveHelper(VertexPtr oldVertex, const VertexPtrNNPtr& vertexNN, const VertexPtrNNPtr& freeStateNN, bool removeLookups);
             ////////////////////////////////
