@@ -363,7 +363,7 @@ namespace ompl
                 // Only check this if we have more than 1 goal
                 if (listPhsPtrs_.size() > 1u)
                 {
-                    // Check if the average measure is greater than half the domain's measure
+                    // Check if the average measure is greater than half the domain's measure. Half is an arbitrary number.
                     if (summedMeasure_/static_cast<double>(listPhsPtrs_.size()) > 0.5*informedSubSpace_->getMeasure())
                     {
                         // The measure is large, sample from the entire world and keep if it's in a PHS
