@@ -120,7 +120,7 @@ namespace ompl
             //Public functions:
             /** \brief Construct an integrated queue. */
             //boost::make_shared can only take 9 arguments, so be careful:
-            IntegratedQueue(const ompl::base::OptimizationObjectivePtr& opt, const NeighbourhoodFunc& nearSamplesFunc, const NeighbourhoodFunc& nearVerticesFunc, const VertexHeuristicFunc& lowerBoundHeuristicVertex, const VertexHeuristicFunc& currentHeuristicVertex, const EdgeHeuristicFunc& lowerBoundHeuristicEdge, const EdgeHeuristicFunc& currentHeuristicEdge, const EdgeHeuristicFunc& currentHeuristicEdgeTarget);
+            IntegratedQueue(const ompl::base::OptimizationObjectivePtr& opt, const NeighbourhoodFunc& nearStatesFunc, const VertexHeuristicFunc& lowerBoundHeuristicVertex, const VertexHeuristicFunc& currentHeuristicVertex, const EdgeHeuristicFunc& lowerBoundHeuristicEdge, const EdgeHeuristicFunc& currentHeuristicEdge, const EdgeHeuristicFunc& currentHeuristicEdgeTarget);
 
             virtual ~IntegratedQueue();
 
@@ -146,8 +146,8 @@ namespace ompl
             /** \brief Insert an edge into the edge processing queue. Edges are removed from the processing queue. This is only valid if the source vertex is already in the expansion queue (though it may already be expanded). */
             void insertEdge(const VertexPtrPair& newEdge);
 
-            /** \brief Erase a vertex from the vertex expansion queue. Will disconnect the vertex from its parent and remove the associated incoming and outgoing edges from the edge queue as requested.*/
-            void eraseVertex(const VertexPtr& oldVertex, bool disconnectParent, const VertexPtrNNPtr& vertexNN, const VertexPtrNNPtr& freeStateNN);
+            /** \brief Erase a vertex from the vertex expansion queue.  Descendents of the vertex are left as free states. Returns the number of vertices disconnected. */
+            unsigned int eraseVertex(const VertexPtr& oldVertex);
             //////////////////
 
             //////////////////
@@ -197,11 +197,11 @@ namespace ompl
             /** \brief Mark the queue as requiring resorting */
             void markVertexUnsorted(const VertexPtr& vertex);
 
-            /** \brief Prune the vertex queue of vertices whose their lower-bound heuristic is greater then the threshold. Descendents of pruned vertices that are not pruned themselves are returned to the set of free states. Returns the number of vertices pruned (either removed completely or moved to the set of free states). */
-            std::pair<unsigned int, unsigned int> prune(const VertexPtr& pruneStartPtr, const VertexPtrNNPtr& vertexNN, const VertexPtrNNPtr& freeStateNN);
+            /** \brief Prune the vertex queue of vertices whose their lower-bound heuristic is greater then the threshold. Descendents of pruned vertices that are not pruned themselves are left as free states. Returns the number of vertices and free states pruned. */
+            std::pair<unsigned int, unsigned int> prune(const VertexPtr& pruneStartPtr, const VertexPtrNNPtr& stateNN);
 
-            /** \brief Resort the queue, only reinserting edges/vertices if their lower-bound heuristic is less then the threshold. Descendents of pruned vertices that are not pruned themselves are returned to the set of free states. Requires first marking the queue as unsorted. Returns the number of vertices pruned (either removed completely or moved to the set of free states). */
-            std::pair<unsigned int, unsigned int> resort(const VertexPtrNNPtr& vertexNN, const VertexPtrNNPtr& freeStateNN);
+            /** \brief Resort the queue, only reinserting edges/vertices if their lower-bound heuristic is less then the threshold. Vertices that are pruned instead of resorted are left as free states. Requires first marking the queue as unsorted. Returns the number of vertices disconnected. */
+            unsigned int resort();
 
             /** \brief Finish the queue, clearing all the edge containers and moving the vertex expansion token to the end. After a call to finish, isEmpty() will return true. Keeps threshold, list of unsorted vertices, etc.*/
             void finish();
@@ -290,11 +290,8 @@ namespace ompl
             /** \brief My optimization objective. */
             ompl::base::OptimizationObjectivePtr                     opt_;
 
-            /** \brief The function to find nearby samples. */
-            NeighbourhoodFunc                                        nearSamplesFunc_;
-
-            /** \brief The function to find nearby samples. */
-            NeighbourhoodFunc                                        nearVerticesFunc_;
+            /** \brief The function to find nearby states. */
+            NeighbourhoodFunc                                        nearStatesFunc_;
 
             /** \brief The lower-bounding heuristic for a vertex. */
             VertexHeuristicFunc                                      lowerBoundHeuristicVertexFunc_;
@@ -365,6 +362,9 @@ namespace ompl
 
             /** \brief Attempt to add an edge to the queue. Checks that the edge meets the queueing condition and that it is not in the failed set (if appropriate). */
             void queueupEdge(const VertexPtr& parent, const VertexPtr& child);
+
+            /** \brief Prune the NN struct of any disconnected states that should be pruned. Assumes that all connected states that should be pruned have already been moved to disconnected (i.e., as done by prune(...)). Returns the number of free states pruned. */
+            unsigned int pruneNN(const VertexPtrNNPtr& stateNN);
             ////////////////////////////////
 
 
@@ -373,8 +373,8 @@ namespace ompl
             /** \brief Reinsert a vertex and its associated queue edges. This is the main workhorse of resorting. */
             void reinsertVertex(const VertexPtr& unorderedVertex);
 
-            /** \brief Prune a branch of the graph. Returns the number of vertices removed, and the number of said vertices that are completely thrown away (i.e., are not even useful as a sample) */
-            std::pair<unsigned int, unsigned int> pruneBranch(const VertexPtr& branchBase, const VertexPtrNNPtr& vertexNN, const VertexPtrNNPtr& freeStateNN);
+            /** \brief Prune a branch of the graph. Returns the number of vertices disconnected from the graph and left as unconnected states. */
+            unsigned int pruneBranch(const VertexPtr& branchBase);
 
             /** \brief Disconnect a vertex from its parent by removing the edges stored in itself, and its parents. Cascades cost updates if requested.*/
             void disconnectParent(const VertexPtr& oldVertex, bool cascadeCostUpdates);
@@ -382,9 +382,9 @@ namespace ompl
             /** \brief Insert a vertex into the queue and lookups. Expands vertex into edges if it comes before the expansion token and expandIfBeforeToken is true. */
             void vertexInsertHelper(const VertexPtr& newVertex, bool expandIfBeforeToken);
 
-            /** \brief Remove a vertex from the queue and optionally its entries in the various lookups. Returns the number of vertices that are completely deleted. */
+            /** \brief Remove a vertex from the queue and (optionally) lookups. DOES NOT remove the vertex from the NN struct, but leaves as an unconnected state. */
             //This is *NOT* by const-reference so that the oldVertex pointer doesn't go out of scope on me... which was happening if it was being called with an iter->second where the iter gets deleted in this function...
-            unsigned int vertexRemoveHelper(VertexPtr oldVertex, const VertexPtrNNPtr& vertexNN, const VertexPtrNNPtr& freeStateNN, bool removeLookups);
+            void vertexRemoveHelper(VertexPtr oldVertex, bool removeOutgoingLookup, bool removeIncomingLookup);
             ////////////////////////////////
 
             ////////////////////////////////
@@ -444,7 +444,7 @@ namespace ompl
             bool isCostWorseThanOrEquivalentTo(const ompl::base::Cost& a, const ompl::base::Cost& b) const;
             ////////////////////////////////
         }; //class: IntegratedQueue
-    } //geometric
-} //ompl
+    } // geometric
+} // ompl
 #endif //OMPL_GEOMETRIC_PLANNERS_BITSTAR_DATASTRUCTURES_INTEGRATEDQUEUE_
 
