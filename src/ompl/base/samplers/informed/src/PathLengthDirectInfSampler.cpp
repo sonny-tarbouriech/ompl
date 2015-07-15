@@ -408,7 +408,7 @@ namespace ompl
             {
                 // Variable
                 // The random PHS in use for this sample.
-                ProlateHyperspheroidCPtr phsCPtr = randomPhsPtr(maxCost);
+                ProlateHyperspheroidCPtr phsCPtr = randomPhsPtr();
 
                 // Sample the PHS directly
                 // Use the PHS to get a sample in the informed subspace irrespective of boundary
@@ -462,7 +462,7 @@ namespace ompl
             {
                 // Variable
                 // The random PHS in use for this sample.
-                ProlateHyperspheroidCPtr phsCPtr = randomPhsPtr(maxCost);
+                ProlateHyperspheroidCPtr phsCPtr = randomPhsPtr();
 
                 // Check if this PHS is too large to sample directly
                 if (phsCPtr->getPhsMeasure() > informedSubSpace_->getMeasure())
@@ -627,20 +627,21 @@ namespace ompl
                     // Increment the iterator
                     ++phsIter;
                 }
-                else
+                else if (listPhsPtrs_.size() > 1u)
                 {
-                    // It can't, remove it
+                    // It can't, if it is not the last PHS, remove it
 
                     // Remove the iterator to delete from the list, this returns the next:
                     /// \todo Make sure this doesn't cause problems for JIT sampling?
                     phsIter = listPhsPtrs_.erase(phsIter);
                 }
+                //No else, don't remove the last one.
             }
         }
 
 
 
-        ompl::ProlateHyperspheroidPtr PathLengthDirectInfSampler::randomPhsPtr(const Cost &maxCost)
+        ompl::ProlateHyperspheroidPtr PathLengthDirectInfSampler::randomPhsPtr()
         {
             // Variable
             // The return value
@@ -650,9 +651,6 @@ namespace ompl
             if (listPhsPtrs_.size() == 1u)
             {
                 // One PHS, keep this simple.
-
-                // Update the diameter
-                listPhsPtrs_.front()->setTransverseDiameter(maxCost.value());
 
                 // Return it
                 rval = listPhsPtrs_.front();

@@ -130,7 +130,7 @@ namespace ompl
             void updatePhsDefinitions(const Cost &maxCost);
 
             /** \brief Select a random PHS from the list of PHSs. The probability of sampling chosing a PHS is it's measure relative to the total measure of all PHSs. Bypasses if only one PHS exists. */
-            ompl::ProlateHyperspheroidPtr randomPhsPtr(const Cost &maxCost);
+            ompl::ProlateHyperspheroidPtr randomPhsPtr();
 
             /** \brief Probabilistically decide whether to keep a given sample drawn directly from a PHS. If a sample is in K PHSs, it returns true with probability 1/K. */
             bool keepSample(const std::vector<double>& informedVector);
