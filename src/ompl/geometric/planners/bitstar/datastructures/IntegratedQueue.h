@@ -140,7 +140,7 @@ namespace ompl
 
             //////////////////
             //Insert and erase
-            /** \brief Insert a vertex into the vertex expansion queue. Vertices remain in the vertex queue until pruned or manually removed. A moving token marks the line between expanded and not expanded vertices. */
+            /** \brief Insert a vertex into the vertex expansion queue. Vertices remain in the vertex queue until pruned or manually removed. A moving token marks the line between expanded and not expanded vertices.*/
             void insertVertex(const VertexPtr& newVertex);
 
             /** \brief Insert an edge into the edge processing queue. Edges are removed from the processing queue. This is only valid if the source vertex is already in the expansion queue (though it may already be expanded). */
@@ -194,7 +194,7 @@ namespace ompl
             /** \brief Prune edges in the edge queue that leave from the given vertex using the prune function */
             void pruneEdgesFrom(const VertexPtr& pVertex);
 
-            /** \brief Mark the queue as requiring resorting */
+            /** \brief Mark the queue as requiring resorting downstream of the specified vertex */
             void markVertexUnsorted(const VertexPtr& vertex);
 
             /** \brief Prune the vertex queue of vertices whose their lower-bound heuristic is greater then the threshold. Descendents of pruned vertices that are not pruned themselves are left as free states. Returns the number of vertices and free states pruned. */
@@ -320,13 +320,13 @@ namespace ompl
             /** \brief Whether to use child lookup tables or not */
             bool                                                     incomingLookupTables_;
 
-            /** \brief The underlying queue of vertices. Sorted by vertex_sorting_func_t. */
+            /** \brief The underlying queue of vertices. Sorted by vertexQueueComparison. */
             CostToVertexMMap                                         vertexQueue_;
 
             /** \brief The next vertex in the expansion queue to expand*/
             VertexQueueIter                                          vertexToExpand_;
 
-            /** \brief The underlying queue of edges. Sorted by edge_sorting_func_t. */
+            /** \brief The underlying queue of edges. Sorted by edgeQueueComparison. */
             CostToVertexPtrPairMMap                                  edgeQueue_;
 
             /** \brief A lookup from vertex to iterator in the vertex queue */

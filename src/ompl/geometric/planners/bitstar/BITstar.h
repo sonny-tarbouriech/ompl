@@ -271,7 +271,7 @@ namespace ompl
             bool checkEdge(const VertexPtrPair& edge);
 
             /** \brief Add an edge from the edge queue to the tree. Will add the state to the vertex queue if it's new to the tree or otherwise replace the parent. Updates solution information if the solution improves. */
-            void addEdge(const VertexPtrPair& newEdge, const ompl::base::Cost& edgeCost, const bool& removeFromFree, const bool& updateDescendants);
+            void addEdge(const VertexPtrPair& newEdge, const ompl::base::Cost& edgeCost, const bool& updateDescendants);
 
             /** \brief Replace the parent edge with the given new edge and cost */
             void replaceParent(const VertexPtrPair& newEdge, const ompl::base::Cost& edgeCost, const bool& updateDescendants);
@@ -279,11 +279,14 @@ namespace ompl
             /** \brief The special work that needs to be done to update the goal vertex is the solution has changed. */
             void updateGoalVertex();
 
+            /** \brief Adds any new goals or starts that have appeared in the problem definition to the list of vertices and then adds \e only \e the \e new \e ones to the queue.*/
+            void addAllStartsAndGoalStates();
+
             /** \brief Add a sample */
             void addSample(const VertexPtr& newSample);
 
             /** \brief Add a vertex to the graph */
-            void addVertex(const VertexPtr& newVertex, const bool& removeFromFree);
+            void addVertex(const VertexPtr& newVertex);
 
             /** \brief Get the nearest states from the stateNN_ using the appropriate "near" definition (i.e., k or r). */
             void nearestStates(const VertexPtr& vertex, std::vector<VertexPtr>* neighbourSamples);
