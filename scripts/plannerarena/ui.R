@@ -65,9 +65,9 @@ shinyUI(
             div(class="container",
                 p(
                     a(href="http://www.kavrakilab.org", "Physical and Biological Computing Group"),
-                    "•",
+                    "â€¢",
                     a(href="http://www.cs.rice.edu", "Department of Computer Science"),
-                    "•",
+                    "â€¢",
                     a(href="http://www.rice.edu", "Rice University")
                 )
             ),

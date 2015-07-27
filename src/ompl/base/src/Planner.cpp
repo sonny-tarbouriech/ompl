@@ -100,7 +100,9 @@ void ompl::base::Planner::setup()
 void ompl::base::Planner::checkValidity()
 {
     if (!isSetup())
+    {
         setup();
+    }
     pis_.checkValidity();
 }
 

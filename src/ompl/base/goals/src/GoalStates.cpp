@@ -87,6 +87,16 @@ void ompl::base::GoalStates::sampleGoal(base::State *st) const
     samplePosition_ = (samplePosition_ + 1) % states_.size();
 }
 
+//STa
+void  ompl::base::GoalStates::sampleGoal(State *st, unsigned int samplePosition) const
+{
+    if (states_.empty())
+        throw Exception("There are no goals to sample");
+    else if (samplePosition >= states_.size())
+    	throw Exception("Goal sample index exceeds sample count");
+    si_->copyState(st, states_[samplePosition]);
+}
+
 unsigned int ompl::base::GoalStates::maxSampleCount() const
 {
     return states_.size();

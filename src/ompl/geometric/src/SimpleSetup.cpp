@@ -59,8 +59,7 @@ ompl::geometric::SimpleSetup::SimpleSetup(const base::StateSpacePtr &space) :
 void ompl::geometric::SimpleSetup::setup()
 {
     if (!configured_ || !si_->isSetup() || !planner_->isSetup())
-    {
-        if (!si_->isSetup())
+    {        if (!si_->isSetup())
             si_->setup();
         if (!planner_)
         {
@@ -74,7 +73,9 @@ void ompl::geometric::SimpleSetup::setup()
         }
         planner_->setProblemDefinition(pdef_);
         if (!planner_->isSetup())
+        {
             planner_->setup();
+        }
         configured_ = true;
     }
 }

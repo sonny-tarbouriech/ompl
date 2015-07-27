@@ -7,10 +7,6 @@ defaultDatabase <- "www/benchmark.db"
 
 noDatabaseText <- "No database loaded yet. Upload one by clicking on “Change database”."
 
-notReadyText <- "The benchmarking results are not available yet, check back later."
-
-sessionsFolder = "../../../webapp/static/sessions"
-
 disable <- function(x) {
   if (inherits(x, 'shiny.tag')) {
     if (x$name %in% c('input', 'select', 'label'))
@@ -109,26 +105,13 @@ options(shiny.maxRequestSize = 30*1024^2, warn = -1)
 
 shinyServer(function(input, output, session) {
     con <- reactive({
-		query <- parseQueryString(session$clientData$url_search)
-
-		if (is.null(query$user) || is.null(query$job)) {
-			if (is.null(input$database) || is.null(input$database$datapath))
-				database <- defaultDatabase
-			else
-				database <- input$database$datapath
-		} else {
-			database <- paste(sessionsFolder, query$user, query$job, sep="/")
-		}
-
+        if (is.null(input$database) || is.null(input$database$datapath))
+            database <- defaultDatabase
+        else
+            database <- input$database$datapath
         #return(normalizePath(database))
-
-        if (file.exists(database)) {
-            dbConnection <- dbConnect(dbDriver("SQLite"), database)
-			validate(need(dbExistsTable(dbConnection, "experiments"), notReadyText))
-
-			# TODO: For some reason, have to do this line again, gives error otherwise.
-			dbConnection <- dbConnect(dbDriver("SQLite"), database)
-		}
+        if (file.exists(database))
+            dbConnect(dbDriver("SQLite"), database)
         else
             NULL
     })

@@ -80,3 +80,9 @@ void KoulesGoal::sampleGoal(ompl::base::State *st) const
         }
     }
 }
+
+//STa
+ void KoulesGoal::sampleGoal(ompl::base::State *st, unsigned int samplePosition) const
+ {
+	 sampleGoal(st);
+ }

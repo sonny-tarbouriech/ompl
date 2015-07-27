@@ -37,6 +37,9 @@
 #include "ompl/tools/multiplan/ParallelPlan.h"
 #include "ompl/geometric/PathHybridization.h"
 
+//STa
+#include "ompl/base/objectives/SafeMultiOptimizationObjective.h"
+
 ompl::tools::ParallelPlan::ParallelPlan(const base::ProblemDefinitionPtr &pdef) :
     pdef_(pdef), phybrid_(new geometric::PathHybridization(pdef->getSpaceInformation()))
 {
@@ -94,7 +97,6 @@ ompl::base::PlannerStatus ompl::tools::ParallelPlan::solve(const base::PlannerTe
     if (!pdef_->getSpaceInformation()->isSetup())
         pdef_->getSpaceInformation()->setup();
     foundSolCount_ = 0;
-
     time::point start = time::now();
     std::vector<boost::thread*> threads(planners_.size());
 
@@ -122,6 +124,37 @@ ompl::base::PlannerStatus ompl::tools::ParallelPlan::solve(const base::PlannerTe
                 bool approximate = !pdef_->getGoal()->isSatisfied(pg->getStates().back(), &difference);
                 pdef_->addSolutionPath(hsol, approximate, difference, phybrid_->getName()); // name this solution after the hybridization algorithm
             }
+    }
+    //STa
+    else if (pdef_->hasSolution())
+    {
+    	ompl::base::SafeMultiOptimizationObjective* smoo = dynamic_cast<ompl::base::SafeMultiOptimizationObjective*>(pdef_->getOptimizationObjective().get());
+    	if (smoo)
+    	{
+    		std::vector<ompl::base::PlannerSolution> solutions = pdef_->getSolutions();
+    		if (solutions.size() > 1)
+    		{
+//    	    	//STa temp
+//    	    	std::cout << "ParallelPlan::solve solutions.size() = " << solutions.size() << "\n";
+    			ompl::base::PlannerSolution bestSolution = solutions[0];
+    			for (size_t i=1; i < solutions.size(); ++i)
+    			{
+    				if (smoo->isSafetyCostBetterThan(solutions[i].safetyCost_, bestSolution.safetyCost_))
+    				{
+    					bestSolution = solutions[i];
+    				}
+//    				//STa temp
+//    				std::cout << "solutions[" << i << "].safetyCost_" <<solutions[i].safetyCost_ << "\n";
+//    				solutions[i].path_->print(std::cout);
+//    				std::cout << "\n";
+    			}
+    			pdef_->clearSolutionPaths();
+    			pdef_->addSolutionPath(bestSolution);
+//    			//STa temp
+//    			std::cout << "pdef path : ";
+//    			pdef_->getSolutionPath()->print(std::cout);
+    		}
+    	}
     }
 
     if (pdef_->hasSolution())

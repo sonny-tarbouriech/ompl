@@ -34,44 +34,53 @@
 
 /* Authors: Javier V. Gómez, Ioan Sucan, Mark Moll */
 
-#include "ompl/geometric/planners/cforest/CForest.h"
-#include "ompl/geometric/planners/rrt/RRTstar.h"
-#include "ompl/base/objectives/PathLengthOptimizationObjective.h"
+#include "ompl/geometric/planners/cforest/SafeCForest.h"
+#include "ompl/geometric/planners/rrt/SafeRRTstar.h"
 
-ompl::geometric::CForest::CForest(const base::SpaceInformationPtr &si) : base::Planner(si, "CForest")
+#include "ompl/base/objectives/SafetyObjective.h"
+#include "ompl/base/objectives/ManipulabilityObjective.h"
+#include "ompl/base/objectives/JointLimitsObjective.h"
+#include "ompl/base/objectives/SafePathLengthOptimizationObjective.h"
+
+//STa temp
+#include <fstream>
+
+ompl::geometric::SafeCForest::SafeCForest(const base::SpaceInformationPtr &si) : base::Planner(si, "SafeCForest")
 {
 	specs_.optimizingPaths = true;
 	specs_.multithreaded = true;
 
 	numPathsShared_ = 0;
 	numStatesShared_ = 0;
-	prune_ = true;
+
+	prune_ = false;
 
 	numThreads_ = std::max(boost::thread::hardware_concurrency(), 2u);
-	Planner::declareParam<bool>("prune", this, &CForest::setPrune, &CForest::getPrune, "0,1");
-	Planner::declareParam<unsigned int>("num_threads", this, &CForest::setNumThreads, &CForest::getNumThreads, "0:64");
+
+	Planner::declareParam<bool>("prune", this, &SafeCForest::setPrune, &SafeCForest::getPrune, "0,1");
+	Planner::declareParam<unsigned int>("num_threads", this, &SafeCForest::setNumThreads, &SafeCForest::getNumThreads, "0:64");
 
 	addPlannerProgressProperty("best cost REAL",
-			boost::bind(&CForest::getBestCost, this));
+			boost::bind(&SafeCForest::getBestCost, this));
 	addPlannerProgressProperty("shared paths INTEGER",
-			boost::bind(&CForest::getNumPathsShared, this));
+			boost::bind(&SafeCForest::getNumPathsShared, this));
 	addPlannerProgressProperty("shared states INTEGER",
-			boost::bind(&CForest::getNumStatesShared, this));
+			boost::bind(&SafeCForest::getNumStatesShared, this));
 }
 
-ompl::geometric::CForest::~CForest()
+ompl::geometric::SafeCForest::~SafeCForest()
 {
 }
 
-void ompl::geometric::CForest::setNumThreads(unsigned int numThreads)
+void ompl::geometric::SafeCForest::setNumThreads(unsigned int numThreads)
 {
 	numThreads_ = numThreads ? numThreads : std::max(boost::thread::hardware_concurrency(), 2u);
 }
 
-void ompl::geometric::CForest::addPlannerInstanceInternal(const base::PlannerPtr &planner)
+void ompl::geometric::SafeCForest::addPlannerInstanceInternal(const base::PlannerPtr &planner)
 {
 	if (!planner->getSpecs().canReportIntermediateSolutions)
-		OMPL_WARN("%s cannot report intermediate solutions, not added as CForest planner.", planner->getName().c_str());
+		OMPL_WARN("%s cannot report intermediate solutions, not added as SafeCForest planner.", planner->getName().c_str());
 	else
 	{
 		planner->setProblemDefinition(pdef_);
@@ -81,7 +90,7 @@ void ompl::geometric::CForest::addPlannerInstanceInternal(const base::PlannerPtr
 	}
 }
 
-void ompl::geometric::CForest::getPlannerData(base::PlannerData &data) const
+void ompl::geometric::SafeCForest::getPlannerData(base::PlannerData &data) const
 {
 	Planner::getPlannerData(data);
 
@@ -116,13 +125,15 @@ void ompl::geometric::CForest::getPlannerData(base::PlannerData &data) const
 	}
 }
 
-void ompl::geometric::CForest::clear()
+void ompl::geometric::SafeCForest::clear()
 {
 	Planner::clear();
 	for (std::size_t i = 0; i < planners_.size(); ++i)
 		planners_[i]->clear();
 
-	bestCost_ = base::Cost(std::numeric_limits<double>::quiet_NaN());
+	//	clearPlannerInstances();
+
+	bestCost_ = base::SafetyCost();
 	numPathsShared_ = 0;
 	numStatesShared_ = 0;
 
@@ -134,36 +145,28 @@ void ompl::geometric::CForest::clear()
 	samplers_.swap(samplers);
 }
 
-void ompl::geometric::CForest::setup()
+void ompl::geometric::SafeCForest::setup()
 {
 	if (pdef_)
 	{
 		Planner::setup();
 
-		if (pdef_->hasOptimizationObjective())
-			opt_ = pdef_->getOptimizationObjective();
-		else
-		{
-			OMPL_INFORM("%s: No optimization objective specified. Defaulting to optimizing path length for the allowed planning time.", getName().c_str());
-			opt_.reset(new base::PathLengthOptimizationObjective(si_));
-		}
-
-		bestCost_ = opt_->infiniteCost();
-
 		if (planners_.empty())
 		{
-			OMPL_INFORM("%s: Number and type of instances not specified. Defaulting to %d instances of RRTstar.", getName().c_str(), numThreads_);
-			addPlannerInstances<RRTstar>(numThreads_);
-
+			OMPL_INFORM("%s: Number and type of instances not specified. Defaulting to %d instances of SafeRRTstar.", getName().c_str(), numThreads_);
+			addPlannerInstances<SafeRRTstar>(numThreads_);
 		}
 
 		for (std::size_t i = 0; i < planners_.size() ; ++i)
 			if (!planners_[i]->isSetup())
 				planners_[i]->setup();
+		//STa
+		getOptimalSafetyObjective();
+		pdef_->setOptimizationObjective(opt_);
+		bestCost_ = safe_multi_opt_->safeInfiniteCost();
 
-		// This call is needed to make sure the ParamSet is up to date after changes induced by the planner setup calls above, via the state space wrappers for CForest.
+		// This call is needed to make sure the ParamSet is up to date after changes induced by the planner setup calls above, via the state space wrappers for SafeCForest.
 		si_->setup();
-
 	}
 	else
 	{
@@ -172,23 +175,41 @@ void ompl::geometric::CForest::setup()
 	}
 }
 
-ompl::base::PlannerStatus ompl::geometric::CForest::solve(const base::PlannerTerminationCondition &ptc)
+void ompl::geometric::SafeCForest::getOptimalSafetyObjective()
+{
+
+	safe_multi_opt_ = new ompl::base::SafeMultiOptimizationObjective(si_);
+	ompl::base::OptimizationObjectivePtr lengthObj(new ompl::base::SafePathLengthOptimizationObjective(si_));
+	ompl::base::OptimizationObjectivePtr safetyObj(new ompl::base::SafetyObjective(si_));
+	ompl::base::OptimizationObjectivePtr jointLimitsObj(new ompl::base::JointLimitsObjective(si_));
+	ompl::base::OptimizationObjectivePtr manipulabilityObj(new ompl::base::ManipulabilityObjective(si_));
+	safe_multi_opt_->addObjective(lengthObj, 0.1, "length");
+	safe_multi_opt_->addObjective(safetyObj, 0.9, "safety");
+//	safe_multi_opt_->addObjective(jointLimitsObj, 0.1, "joint");
+//	safe_multi_opt_->addObjective(manipulabilityObj, 0.1, "manipulability");
+	safe_multi_opt_->NormalizeWeight();
+
+	//Safe RRT*
+	opt_ = ompl::base::OptimizationObjectivePtr(safe_multi_opt_);
+}
+
+ompl::base::PlannerStatus ompl::geometric::SafeCForest::solve(const base::PlannerTerminationCondition &ptc)
 {
 	checkValidity();
 
 	time::point start = time::now();
 	std::vector<boost::thread*> threads(planners_.size());
-	const base::ReportIntermediateSolutionFn prevSolutionCallback = getProblemDefinition()->getIntermediateSolutionCallback();
+	const base::ReportSafeIntermediateSolutionFn prevSolutionCallback = getProblemDefinition()->getSafeIntermediateSolutionCallback();
 
 	if (prevSolutionCallback)
 		OMPL_WARN("Cannot use previously set intermediate solution callback with %s", getName().c_str());
 
-	pdef_->setIntermediateSolutionCallback(boost::bind(&CForest::newSolutionFound, this, _1, _2, _3));
-	bestCost_ = opt_->infiniteCost();
+	pdef_->setSafeIntermediateSolutionCallback(boost::bind(&SafeCForest::newSolutionFound, this, _1, _2, _3));
+	bestCost_ = safe_multi_opt_->safeInfiniteCost();
 
 	// run each planner in its own thread, with the same ptc.
 	for (std::size_t i = 0 ; i < threads.size() ; ++i)
-		threads[i] = new boost::thread(boost::bind(&CForest::solve, this, planners_[i].get(), ptc));
+		threads[i] = new boost::thread(boost::bind(&SafeCForest::solve, this, planners_[i].get(), ptc));
 
 	for (std::size_t i = 0 ; i < threads.size() ; ++i)
 	{
@@ -197,38 +218,50 @@ ompl::base::PlannerStatus ompl::geometric::CForest::solve(const base::PlannerTer
 	}
 
 	// restore callback
-	getProblemDefinition()->setIntermediateSolutionCallback(prevSolutionCallback);
+	getProblemDefinition()->setSafeIntermediateSolutionCallback(prevSolutionCallback);
 	OMPL_INFORM("Solution found in %f seconds", time::seconds(time::now() - start));
+
+//	//STa test
+//	std::string homepath = getenv("HOME");
+//	std::ofstream output_file((homepath + "/safe_cforest.txt").c_str(), std::ios::out | std::ios::app);
+//	output_file  << bestCost_ << "\n";
+//	output_file.close();
+
+
+
 	return base::PlannerStatus(pdef_->hasSolution(), pdef_->hasApproximateSolution());
 }
 
-std::string ompl::geometric::CForest::getBestCost() const
+std::string ompl::geometric::SafeCForest::getBestCost() const
 {
 	return boost::lexical_cast<std::string>(bestCost_);
 }
 
-std::string ompl::geometric::CForest::getNumPathsShared() const
+std::string ompl::geometric::SafeCForest::getNumPathsShared() const
 {
 	return boost::lexical_cast<std::string>(numPathsShared_);
 }
 
-std::string ompl::geometric::CForest::getNumStatesShared() const
+std::string ompl::geometric::SafeCForest::getNumStatesShared() const
 {
 	return boost::lexical_cast<std::string>(numStatesShared_);
 }
 
-void ompl::geometric::CForest::newSolutionFound(const base::Planner *planner, const std::vector<const base::State *> &states, const base::Cost cost)
+void ompl::geometric::SafeCForest::newSolutionFound(const base::Planner *planner, const std::vector<const base::State *> &states, const base::SafetyCost cost)
 {
-	std::cout << "Enter CForest::newSolutionFound \n";
+//	std::cout << "Enter SafeCForest::newSolutionFound \n";
 
 	bool change = false;
 	std::vector<const base::State *> statesToShare;
 	newSolutionFoundMutex_.lock();
-	if (opt_->isCostBetterThan(cost, bestCost_))
+	if (safe_multi_opt_->isSafetyCostBetterThan(cost, bestCost_))
 	{
 		++numPathsShared_;
 		bestCost_ = cost;
 		change = true;
+
+		//STa temp
+		std::cout << "bestCost_ = " << bestCost_ << "\n";
 
 		// Filtering the states to add only those not already added.
 		statesToShare.reserve(states.size());
@@ -249,17 +282,17 @@ void ompl::geometric::CForest::newSolutionFound(const base::Planner *planner, co
 	for (std::size_t i = 0; i < samplers_.size(); ++i)
 	{
 		base::CForestStateSampler *sampler = static_cast<base::CForestStateSampler*>(samplers_[i].get());
-		const base::CForestStateSpaceWrapper *space = static_cast<const base::CForestStateSpaceWrapper*>(sampler->getStateSpace());
+		const base::SafeCForestStateSpaceWrapper *space = static_cast<const base::SafeCForestStateSpaceWrapper*>(sampler->getStateSpace());
 		const base::Planner *cfplanner = space->getPlanner();
 		if (cfplanner != planner)
 			sampler->setStatesToSample(statesToShare);
 	}
 
-	std::cout << "Exit CForest::newSolutionFound \n \n";
+//	std::cout << "Exit SafeCForest::newSolutionFound \n \n";
 
 }
 
-void ompl::geometric::CForest::solve(base::Planner *planner, const base::PlannerTerminationCondition &ptc)
+void ompl::geometric::SafeCForest::solve(base::Planner *planner, const base::PlannerTerminationCondition &ptc)
 {
 	OMPL_DEBUG("Starting %s", planner->getName().c_str());
 	time::point start = time::now();
