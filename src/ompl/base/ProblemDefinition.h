@@ -54,6 +54,9 @@
 
 #include <boost/noncopyable.hpp>
 
+//STa
+#include "ompl/base/SafetyCost.h"
+
 namespace ompl
 {
     namespace base
@@ -103,6 +106,14 @@ namespace ompl
                 optimized_ = meetsObjective;
             }
 
+            //STa
+            void setOptimized(const OptimizationObjectivePtr &opt, SafetyCost safetyCost, bool meetsObjective)
+            {
+                opt_ = opt;
+                safetyCost_ = safetyCost;
+                optimized_ = meetsObjective;
+            }
+
             /** \brief Set the name of the planner used to compute this solution */
             void setPlannerName(const std::string &name)
             {
@@ -135,6 +146,10 @@ namespace ompl
 
              /** \brief Name of planner type that generated this solution, as received from Planner::getName() */
             std::string plannerName_;
+
+
+            //STa
+            SafetyCost safetyCost_;
         };
 
         class Planner;
@@ -142,6 +157,10 @@ namespace ompl
         /** \brief When a planner has an intermediate solution (e.g., optimizing planners), a function with this signature can be called
             to report the states of that solution. */
         typedef boost::function<void(const Planner*, const std::vector<const base::State*> &, const Cost)> ReportIntermediateSolutionFn;
+
+        //STa
+        typedef boost::function<void(const Planner*, const std::vector<const base::State*> &, const SafetyCost)> ReportSafeIntermediateSolutionFn;
+
 
         OMPL_CLASS_FORWARD(OptimizationObjective);
 
@@ -287,6 +306,17 @@ namespace ompl
                 intermediateSolutionCallback_ = callback;
              }
 
+            //STa
+            const ReportSafeIntermediateSolutionFn& getSafeIntermediateSolutionCallback() const
+            {
+                return safeIntermediateSolutionCallback_;
+            }
+
+            /** \brief Set the callback to be called by planners that can compute intermediate solutions */
+            void setSafeIntermediateSolutionCallback(const ReportSafeIntermediateSolutionFn &callback) {
+            	safeIntermediateSolutionCallback_ = callback;
+             }
+
             /** \brief A problem is trivial if a given starting state already
                 in the goal region, so we need no motion planning. startID
                 will be set to the index of the starting state that
@@ -401,6 +431,9 @@ namespace ompl
 
             /** \brief Callback function which is called when a new intermediate solution has been found.*/
             ReportIntermediateSolutionFn     intermediateSolutionCallback_;
+
+            //STa
+            ReportSafeIntermediateSolutionFn     safeIntermediateSolutionCallback_;
 
         private:
 

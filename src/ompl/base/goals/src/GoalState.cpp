@@ -59,6 +59,12 @@ void ompl::base::GoalState::sampleGoal(base::State *st) const
     si_->copyState(st, state_);
 }
 
+//STa
+void ompl::base::GoalState::sampleGoal(State *st, unsigned int samplePosition) const
+{
+	si_->copyState(st, state_);
+}
+
 unsigned int ompl::base::GoalState::maxSampleCount() const
 {
     return 1;
