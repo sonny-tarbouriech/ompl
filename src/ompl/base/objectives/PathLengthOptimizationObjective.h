@@ -39,6 +39,9 @@
 
 #include "ompl/base/OptimizationObjective.h"
 
+//STa
+#include "ompl/base/goals/GoalStates.h"
+
 namespace ompl
 {
     namespace base
@@ -65,6 +68,9 @@ namespace ompl
 
             /** \brief Allocate a state sampler for the path-length objective (i.e., direct ellipsoidal sampling). */
             virtual InformedSamplerPtr allocInformedStateSampler(const ProblemDefinitionPtr probDefn, unsigned int maxNumberCalls) const;
+
+            //STa
+            Cost costToGo(const State *state, const Goal *goal) const;
 
         };
     }

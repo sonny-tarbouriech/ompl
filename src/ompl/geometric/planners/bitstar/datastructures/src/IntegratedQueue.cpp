@@ -1578,7 +1578,7 @@ namespace ompl
 
         bool BITstar::IntegratedQueue::isCostBetterThan(const ompl::base::Cost& a, const ompl::base::Cost& b) const
         {
-            return a.value() < b.value();
+        	return opt_->isCostBetterThan(a, b);
         }
 
 
@@ -1586,23 +1586,21 @@ namespace ompl
         bool BITstar::IntegratedQueue::isCostWorseThan(const ompl::base::Cost& a, const ompl::base::Cost& b) const
         {
             //If b is better than a, then a is worse than b
-            return this->isCostBetterThan(b, a);
+        	return opt_->isCostBetterThan(b, a);
         }
 
 
 
         bool BITstar::IntegratedQueue::isCostEquivalentTo(const ompl::base::Cost& a, const ompl::base::Cost& b) const
         {
-            //If a is not better than b, and b is not better than a, then they are equal
-            return !this->isCostBetterThan(a,b) && !this->isCostBetterThan(b,a);
+        	return (a.value() == b.value());
         }
 
 
 
         bool BITstar::IntegratedQueue::isCostNotEquivalentTo(const ompl::base::Cost& a, const ompl::base::Cost& b) const
         {
-            //If a is better than b, or b is better than a, then they are not equal
-            return this->isCostBetterThan(a,b) || this->isCostBetterThan(b,a);
+        	return (a.value() != b.value());
         }
 
 
@@ -1610,7 +1608,7 @@ namespace ompl
         bool BITstar::IntegratedQueue::isCostBetterThanOrEquivalentTo(const ompl::base::Cost& a, const ompl::base::Cost& b) const
         {
             //If b is not better than a, then a is better than, or equal to, b
-            return !this->isCostBetterThan(b, a);
+        	return !opt_->isCostBetterThan(b, a);
         }
 
 
@@ -1618,7 +1616,7 @@ namespace ompl
         bool BITstar::IntegratedQueue::isCostWorseThanOrEquivalentTo(const ompl::base::Cost& a, const ompl::base::Cost& b) const
         {
             //If a is not better than b, than a is worse than, or equal to, b
-            return !this->isCostBetterThan(a,b);
+        	return !opt_->isCostBetterThan(a,b);
         }
         /////////////////////////////////////////////////////////////////////////////////////////////
 

@@ -34,6 +34,8 @@ namespace ompl
             /** \brief Returns +infinity, since no path safety value can be considered worse than this. */
             virtual Cost infiniteCost() const;
 
+            Cost costToGo(const State *state, const Goal *goal) const;
+
         private:
 
             ompl::base::SafeStateValidityChecker* ssvc_;

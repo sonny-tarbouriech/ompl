@@ -3,6 +3,9 @@
 #include "ompl/geometric/PathGeometric.h"
 #include <limits>
 
+#include "ompl/base/goals/GoalStates.h"
+
+
 //STa test
 #include <fstream>
 #include <ompl/util/Time.h>
@@ -17,6 +20,9 @@ JointLimitsObjective(const SpaceInformationPtr &si) :
 	ssvc_ = dynamic_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
 
 	ssvc_->getJointLimits(q_min_,q_max_);
+
+	//Test to use the objective in BIT*
+	costToGoFn_ = boost::bind(&JointLimitsObjective::costToGo, this, _1, _2);
 
 }
 
@@ -105,4 +111,23 @@ ompl::base::Cost ompl::base::JointLimitsObjective::identityCost() const
 ompl::base::Cost ompl::base::JointLimitsObjective::infiniteCost() const
 {
     return Cost(0);
+}
+
+//Test to use the objective in BIT*
+ompl::base::Cost ompl::base::JointLimitsObjective::costToGo(const State *state, const Goal *goal) const
+{
+	Cost bestGoalStateCost = infiniteCost();
+    const GoalStates *gs = goal->hasType(GOAL_STATES) ? goal->as<GoalStates>() : NULL;
+    if (gs)
+    {
+    	for (size_t i=0; i < gs->getStateCount(); ++i)
+    	{
+    		Cost currentGoalStateCost = stateCost(gs->getState(i));
+    		if (isCostBetterThan(currentGoalStateCost, bestGoalStateCost))
+    			bestGoalStateCost = currentGoalStateCost;
+    	}
+    	return combineCosts(stateCost(state), bestGoalStateCost);
+    }
+    else
+    	return infiniteCost();
 }

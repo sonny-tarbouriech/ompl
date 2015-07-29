@@ -124,48 +124,50 @@ void ompl::geometric::RRTstar::setup()
     // in the state space.
     if (pdef_)
     {
-        if (pdef_->hasOptimizationObjective())
-            opt_ = pdef_->getOptimizationObjective();
-        else
-        {
-            OMPL_INFORM("%s: No optimization objective specified. Defaulting to optimizing path length for the allowed planning time.", getName().c_str());
-            opt_.reset(new base::PathLengthOptimizationObjective(si_));
+    	if (pdef_->hasOptimizationObjective())
+    		opt_ = pdef_->getOptimizationObjective();
+    	else
+    	{
+    		OMPL_INFORM("%s: No optimization objective specified. Defaulting to optimizing path length for the allowed planning time.", getName().c_str());
+    		opt_.reset(new base::PathLengthOptimizationObjective(si_));
 
-            if (opt_->hasCostToGoHeuristic() == false)
-            {
-                OMPL_INFORM("%s: No cost-to-go heuristic set. Defaulting to the distance from the state to the goal.", getName().c_str());
-                //Bind to the goalRegionCostToGo function.
-                opt_->setCostToGoHeuristic( boost::bind(&base::goalRegionCostToGo, _1, _2) );
-            }
+    		if (opt_->hasCostToGoHeuristic() == false)
+    		{
+    			OMPL_INFORM("%s: No cost-to-go heuristic set. Defaulting to the distance from the state to the goal.", getName().c_str());
+    			//Bind to the goalRegionCostToGo function.
+    			opt_->setCostToGoHeuristic( boost::bind(&base::goalRegionCostToGo, _1, _2) );
+    		}
 
-            // Store it back into the problem def'n
-            pdef_->setOptimizationObjective(opt_);
-        }
+    		// Store it back into the problem def'n
+    		pdef_->setOptimizationObjective(opt_);
+    	}
+
+
+    	// Allocate a sampler.
+    	allocSampler();
+
+    	// Get the measure of the entire space:
+    	prunedInfMeasure_ = si_->getSpaceMeasure();
+
+    	// Calculate some constants:
+    	double dimDbl = static_cast<double>(si_->getStateDimension());
+
+    	// k_rrg > e+e/d.  K-nearest RRT*
+    	k_rrg_ = rewireFactor_*(boost::math::constants::e<double>() + (boost::math::constants::e<double>() / dimDbl));
+
+    	// r_rrg > 2*(1+1/d)^(1/d)*(measure/ballvolume)^(1/d)
+    	r_rrg_ = rewireFactor_*2.0*std::pow((1.0 + 1.0/dimDbl)*(si_->getSpaceMeasure()/unitNBallMeasure(si_->getStateDimension())), 1.0/dimDbl);
+
+    	// Set the bestCost_ and prunedCost_ as infinite
+    	bestCost_ = opt_->infiniteCost();
+    	prunedCost_ = opt_->infiniteCost();
+
     }
     else
     {
-        OMPL_INFORM("%s: problem definition is not set, deferring setup completion...", getName().c_str());
-        setup_ = false;
+    	OMPL_INFORM("%s: problem definition is not set, deferring setup completion...", getName().c_str());
+    	setup_ = false;
     }
-
-    // Allocate a sampler.
-    allocSampler();
-
-    // Get the measure of the entire space:
-    prunedInfMeasure_ = si_->getSpaceMeasure();
-
-    // Calculate some constants:
-    double dimDbl = static_cast<double>(si_->getStateDimension());
-
-    // k_rrg > e+e/d.  K-nearest RRT*
-    k_rrg_ = rewireFactor_*(boost::math::constants::e<double>() + (boost::math::constants::e<double>() / dimDbl));
-
-    // r_rrg > 2*(1+1/d)^(1/d)*(measure/ballvolume)^(1/d)
-    r_rrg_ = rewireFactor_*2.0*std::pow((1.0 + 1.0/dimDbl)*(si_->getSpaceMeasure()/unitNBallMeasure(si_->getStateDimension())), 1.0/dimDbl);
-
-    // Set the bestCost_ and prunedCost_ as infinite
-    bestCost_ = opt_->infiniteCost();
-    prunedCost_ = opt_->infiniteCost();
 }
 
 void ompl::geometric::RRTstar::clear()

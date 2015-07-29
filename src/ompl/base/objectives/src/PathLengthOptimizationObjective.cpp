@@ -42,11 +42,17 @@
 #include "ompl/base/samplers/informed/RejectionInfSampler.h"
 #endif
 
+//STa
+#include "ompl/base/samplers/informed/RejectionInfSampler.h"
+
 ompl::base::PathLengthOptimizationObjective::
 PathLengthOptimizationObjective(const SpaceInformationPtr &si) :
     ompl::base::OptimizationObjective(si)
 {
     description_ = "Path Length";
+
+	//Test to use the objective in BIT*
+	costToGoFn_ = boost::bind(&PathLengthOptimizationObjective::costToGo, this, _1, _2);
 }
 
 ompl::base::Cost ompl::base::PathLengthOptimizationObjective::stateCost(const State *s) const
@@ -66,12 +72,32 @@ ompl::base::Cost ompl::base::PathLengthOptimizationObjective::motionCostHeuristi
 
 ompl::base::InformedSamplerPtr ompl::base::PathLengthOptimizationObjective::allocInformedStateSampler(const ProblemDefinitionPtr probDefn, unsigned int maxNumberCalls) const
 {
-    // Make the direct path-length informed sampler and return. If OMPL was compiled with Eigen, a direct version is available, if not a rejection-based technique can be used
-#if OMPL_HAVE_EIGEN3
-    return boost::make_shared<PathLengthDirectInfSampler>(probDefn, maxNumberCalls);
-#else
-    throw Exception("Direct sampling of the path-length objective requires Eigen, but this version of OMPL was compiled without Eigen support. If possible, please install Eigen and recompile OMPL. If this is not possible, you can manually create an instantiation of RejectionInfSampler to approximate the behaviour of direct informed sampling.");
-    // Return a null pointer to avoid compiler warnings
-    return ompl::base::InformedSamplerPtr();
-#endif
+    return boost::make_shared<RejectionInfSampler>(probDefn, maxNumberCalls);
+//    // Make the direct path-length informed sampler and return. If OMPL was compiled with Eigen, a direct version is available, if not a rejection-based technique can be used
+//#if OMPL_HAVE_EIGEN3
+//    return boost::make_shared<PathLengthDirectInfSampler>(probDefn, maxNumberCalls);
+//#else
+//    throw Exception("Direct sampling of the path-length objective requires Eigen, but this version of OMPL was compiled without Eigen support. If possible, please install Eigen and recompile OMPL. If this is not possible, you can manually create an instantiation of RejectionInfSampler to approximate the behaviour of direct informed sampling.");
+//    // Return a null pointer to avoid compiler warnings
+//    return ompl::base::InformedSamplerPtr();
+//#endif
+}
+
+//Test to use the objective in BIT*
+ompl::base::Cost ompl::base::PathLengthOptimizationObjective::costToGo(const State *state, const Goal *goal) const
+{
+	Cost bestGoalStateCost = infiniteCost();
+    const GoalStates *gs = goal->hasType(GOAL_STATES) ? goal->as<GoalStates>() : NULL;
+    if (gs)
+    {
+    	for (size_t i=0; i < gs->getStateCount(); ++i)
+    	{
+    		Cost currentGoalStateCost = stateCost(gs->getState(i));
+    		if (isCostBetterThan(currentGoalStateCost, bestGoalStateCost))
+    			bestGoalStateCost = currentGoalStateCost;
+    	}
+    	return combineCosts(stateCost(state), bestGoalStateCost);
+    }
+    else
+    	return infiniteCost();
 }
