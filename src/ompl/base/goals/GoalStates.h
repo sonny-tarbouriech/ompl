@@ -61,9 +61,6 @@ namespace ompl
 
             virtual void sampleGoal(State *st) const;
 
-            //STa
-            virtual void sampleGoal(State *st, unsigned int samplePosition) const;
-
             virtual unsigned int maxSampleCount() const;
 
             virtual double distanceGoal(const State *st) const;

@@ -136,13 +136,6 @@ void ompl::base::GoalLazySamples::sampleGoal(base::State *st) const
     GoalStates::sampleGoal(st);
 }
 
-//STa
-void ompl::base::GoalLazySamples::sampleGoal(State *st, unsigned int samplePosition) const
-{
-    boost::mutex::scoped_lock slock(lock_);
-    GoalStates::sampleGoal(st, samplePosition);
-}
-
 void ompl::base::GoalLazySamples::setNewStateCallback(const NewStateCallbackFn &callback)
 {
     callback_ = callback;
