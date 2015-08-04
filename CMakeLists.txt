@@ -146,6 +146,10 @@ find_package(cmake_modules REQUIRED)
 find_package( Eigen REQUIRED )
 include_directories(SYSTEM "${Eigen_INCLUDE_DIRS}")
 
+# R is needed for running Planner Arena locally
+find_program(R_EXEC R)
+
+
 option(OMPL_LOCAL_PYPLUSPLUS_INSTALL "Whether Py++ and dependencies should be installed in the build directory" OFF)
 set(SUDO "sudo")
 set(CMAKE_GCCXML_ARGS "")
