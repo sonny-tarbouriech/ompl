@@ -35,7 +35,7 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeStateCost
 			individual_cost = so->stateCost(s, object_danger_factor);
 			c.setObjectDangerFactor(object_danger_factor);
 
-			if (individual_cost.value() < 0)
+			if (individual_cost.value() <= 0)
 			{
 				c.setCollisionWorld(true);
 				break;
@@ -51,6 +51,11 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeStateCost
 
 ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCostToCome(const State *s, SafetyCost safe_state_cost) const
 {
+//    //STa temp
+//    std::cout << "enter safeCostToCome \n";
+//    std::cout << "safe_state_cost.getCollisionWorld() = " << safe_state_cost.getCollisionWorld() << "\n" ;
+
+    //Warning : The state s should not be in collision
 	SafetyCost c;
 	for (size_t i=0; i< components_.size(); ++i)
 	{
@@ -65,11 +70,19 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCostToCom
 
 		c.addCost(individual_cost);
 	}
+
+//    //STa temp
+//    std::cout << "exit safeCostToCome \n";
+
 	return c;
 }
 
 ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCostToGo(const State *s, SafetyCost safe_state_cost) const
 {
+//    //STa temp
+//    std::cout << "enter safeCostToGo \n";
+
+    //Warning : The state s should not be in collision
 	SafetyCost c;
 	for (size_t i=0; i< components_.size(); ++i)
 	{
@@ -84,6 +97,10 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCostToGo(
 
 		c.addCost(individual_cost);
 	}
+
+//    //STa temp
+//    std::cout << "exit safeCostToGo \n";
+
 	return c;
 }
 
@@ -224,7 +241,7 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeMotionCos
 			SafetyObjective* so = static_cast<SafetyObjective*>(components_[i].objective.get());
 			individual_cost = so->motionCost(s1,s2, object_danger_factor);
 			c.setObjectDangerFactor(object_danger_factor);
-			if (individual_cost.value() < 0)
+			if (individual_cost.value() <= 0)
 			{
 				//std::cou << "exit safeMotionCost \n";
 				c.setCollisionWorld(true);
@@ -262,7 +279,7 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeFastMotio
 			SafetyObjective* so = static_cast<SafetyObjective*>(components_[i].objective.get());
 			individual_cost = so->combineCosts(c1.getIndividualCost(i), c1.getObjectDangerFactor(), c2.getIndividualCost(i), c2.getObjectDangerFactor(), object_danger_factor);
 			c.setObjectDangerFactor(object_danger_factor);
-			if (individual_cost.value() < 0)
+			if (individual_cost.value() <= 0)
 			{
 				//std::cou << "exit safeFastMotionCost \n";
 				c.setCollisionWorld(true);
@@ -446,7 +463,7 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
 				c.setObjectDangerFactor(object_danger_factor);
 			}
 
-			if (individual_cost.value() < 0)
+			if (individual_cost.value() <= 0)
 			{
 				c.setCollisionWorld(true);
 				break;
@@ -539,7 +556,7 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeMotionCos
 			c1 = components_[i].objective->stateCost(s1);
 			c2 = components_[i].objective->stateCost(s2);
 			individual_cost = components_[i].objective->combineCosts(c1,c2);
-			if (int(i) == safety_obj_index_ && individual_cost.value() < 0)
+			if (int(i) == safety_obj_index_ && individual_cost.value() <= 0)
 			{
 				c.setCollisionWorld(true);
 				break;

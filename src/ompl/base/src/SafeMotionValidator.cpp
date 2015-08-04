@@ -666,7 +666,7 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 
 	object_danger_factor = ss_queue.top().obj_danger_factor_;
 
-	return (ss_queue.top().non_covered_length_ > 0 ? -1 : -ss_queue.top().non_covered_length_/2);
+	return (ss_queue.top().non_covered_length_ >= 0 ? -1 : -ss_queue.top().non_covered_length_/2);
 
 
 }

@@ -60,9 +60,12 @@ ompl::geometric::SafeBiRRTstar::SafeBiRRTstar(const base::SpaceInformationPtr &s
 base::Planner(si, "SafeBiRRTstar"),
 maxDistance_(0.0),
 lastGoalMotion_(NULL),
+prune_(false),
+pruneStatesThreshold_(1),
 iterations_(0),
 bestCost_(base::SafetyCost()),
-improveSolutionBias_(0.05)
+improveSolutionBias_(0.05),
+treeConnectionIndex_(0)
 {
     specs_.approximateSolutions = true;
     specs_.optimizingPaths = true;
@@ -88,12 +91,12 @@ ompl::geometric::SafeBiRRTstar::~SafeBiRRTstar()
 }
 
 
-void ompl::geometric::SafeBiRRTstar::treeConnexion::updateWholeMotionCost(const base::SafeMultiOptimizationObjective* safe_multi_opt)
+void ompl::geometric::SafeBiRRTstar::treeConnection::updateWholeMotionCost(const base::SafeMultiOptimizationObjective* safe_multi_opt)
 {
     wholeMotionCost = safe_multi_opt->safeCombineCosts(startTreeMotion->cost, goalTreeMotion->cost);
 }
 
-std::vector<ompl::base::State*> ompl::geometric::SafeBiRRTstar::treeConnexion::getPath()
+std::vector<ompl::base::State*> ompl::geometric::SafeBiRRTstar::treeConnection::getPath()
 {
     std::vector<base::State*> solutionStates;
     Motion* solution = startTreeMotion;
@@ -110,6 +113,22 @@ std::vector<ompl::base::State*> ompl::geometric::SafeBiRRTstar::treeConnexion::g
         solution = solution->parent;
     }
     return solutionStates;
+}
+
+ompl::base::SafetyCost ompl::geometric::SafeBiRRTstar::Motion::heuristicCost(const base::SafeMultiOptimizationObjective* safe_multi_opt,  const bool shortest) const
+{
+    base::SafetyCost costToCome, costToGo;
+    if (shortest)
+    {
+        costToCome = safe_multi_opt->safeCostToCome(state, stateCost);
+        costToGo = safe_multi_opt->safeCostToGo(state, stateCost);
+    }
+    else
+    {
+        costToCome = cost;
+        costToGo = safe_multi_opt->safeCostToGo(state, stateCost);
+    }
+    return safe_multi_opt->safeCombineCosts(costToCome, costToGo);
 }
 
 void ompl::geometric::SafeBiRRTstar::setup()
@@ -203,7 +222,6 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
     //	ompl::time::duration dur;
 
     checkValidity();
-    size_t  goalMotionCount = 0;
 
     safe_multi_opt_->setGoal(pdef_->getGoal().get());
 
@@ -212,14 +230,15 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
         Motion *motion = new Motion(si_);
         si_->copyState(motion->state, startState);
         motion->root = motion->state;
-        motion->cost = safe_multi_opt_->safeStateCost(motion->state);
-        motion->heuristicCost = costToGo(motion->state, motion->cost);
+        motion->stateCost = safe_multi_opt_->safeStateCost(motion->state);
+        motion->cost = motion->stateCost;
         motion->isGoalTree = false;
-        tStart_->add(motion);
-        startMotion_ = motion;
+        if (!motion->stateCost.getCollisionWorld())
+        {
+            tStart_->add(motion);
+            startMotion_ = motion;
+        }
     }
-
-    safe_multi_opt_->setStart(startMotion_->state);
 
     if (tStart_->size() == 0)
     {
@@ -227,20 +246,30 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
         return base::PlannerStatus::INVALID_START;
     }
 
-    // Do the same for the goal but only once
-    const base::State *goalState = pis_.nextGoal(ptc);
-    if (goalState)
+    safe_multi_opt_->setStart(startMotion_->state);
+
+
+    // Do the same for the goal but only until one valid state is found
+    do
     {
-        Motion *motion = new Motion(si_);
-        si_->copyState(motion->state, goalState);
-        motion->root = motion->state;
-        motion->cost = safe_multi_opt_->safeStateCost(motion->state);
-        motion->heuristicCost = costToGo(motion->state, motion->cost);
-        motion->isGoalTree = true;
-        tGoal_->add(motion);
-        goalMotionCount++;
-    }
-    else
+        const base::State *goalState = pis_.nextGoal(ptc);
+        if (goalState)
+        {
+            Motion *motion = new Motion(si_);
+            si_->copyState(motion->state, goalState);
+            motion->root = motion->state;
+            motion->stateCost = safe_multi_opt_->safeStateCost(motion->state);
+            motion->cost = motion->stateCost;
+            motion->isGoalTree = true;
+            if (!motion->stateCost.getCollisionWorld())
+            {
+                tGoal_->add(motion);
+                goalMotion_.push_back(motion);
+            }
+        }
+    } while (ptc == false && tGoal_->size() == 0);
+
+    if (tGoal_->size() == 0)
     {
         OMPL_ERROR("%s: Goal tree has no valid states!", getName().c_str());
         return base::PlannerStatus::INVALID_GOAL;
@@ -280,6 +309,7 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
     std::vector<int>           valid;
     rewireTest_ = 0;
     statesGenerated_ = 0;
+    statesPruned_ = 0;
 
     TreeData tree = tStart_;
     TreeData otherTree = tGoal_;
@@ -297,12 +327,14 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
             Motion *motion = new Motion(si_);
             si_->copyState(motion->state, goalState);
             motion->root = motion->state;
-            motion->cost = safe_multi_opt_->safeStateCost(motion->state);
-            motion->heuristicCost = costToGo(motion->state, motion->cost);
+            motion->stateCost = safe_multi_opt_->safeStateCost(motion->state);
+            motion->cost =  motion->stateCost;
             motion->isGoalTree = true;
-            tGoal_->add(motion);
-            goalMotionCount++;
-
+            if (!motion->stateCost.getCollisionWorld())
+            {
+                tGoal_->add(motion);
+                goalMotion_.push_back(motion);
+            }
         }
 
         // sample random state
@@ -314,24 +346,24 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
         Motion* result; // the motion that gets added in extendTree
         if (extendTree(rmotion, tree, result) != FAILED) // we added something new to the tree
         {
-            //			//STa temp
-            //			std::cout << "extendTree returned true \n";
+//            //STa temp
+//            std::cout << "extendTree returned true \n";
 
             // Try to connect the other tree to the node we just added
             if (connectTrees(result, otherTree, xmotion))
             {
-                //				//STa temp
-                //				std::cout << "connectTrees returned true \n";
+//                //STa temp
+//                std::cout << "connectTrees returned true \n";
 
                 feasibleSolution = true;
             }
-            //			else
-            //				//STa temp
-            //				std::cout << "connectTrees returned false \n";
+//            else
+//                //STa temp
+//                std::cout << "connectTrees returned false \n";
         }
-        //		else
-        //			//STa temp
-        //			std::cout << "extendTree returned false \n";
+//        else
+//            //STa temp
+//            std::cout << "extendTree returned false \n";
 
 
         // Checking for solution or iterative improvement
@@ -350,7 +382,15 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
             {
                 break;
             }
+
+            if (prune_)
+            {
+                statesPruned_ += pruneTree(tStart_, true, bestCost_);
+                statesPruned_ += pruneTree(tGoal_, false, bestCost_);
+            }
         }
+
+
         std::swap(tree, otherTree);
     }
 
@@ -358,11 +398,11 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
     {
         //		//STa temp
         //		std::cout << "bestIndex_ = " << bestIndex_ << "\n";
-        //		std::cout << "connexion_.size()  = " << connexion_.size() << "\n";
+        //		std::cout << "connection_.size()  = " << connection_.size() << "\n";
 
         ptc.terminate();
         // construct the solution path
-        std::vector<base::State*> mpath = connexion_[bestIndex_]->getPath();
+        std::vector<base::State*> mpath = connection_[bestIndex_]->getPath();
 
 
         // set the solution path
@@ -412,7 +452,10 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
     delete rmotion;
     delete xmotion;
 
-    OMPL_INFORM("%s: Created %u new states. Checked %u rewire options. %u goal states in tree.", getName().c_str(), statesGenerated_, rewireTest_, goalMotionCount);
+    if (prune_)
+        OMPL_INFORM("%s: Created %u new states. Pruned %u states. Checked %u rewire options. %u goal states in tree.", getName().c_str(), statesGenerated_, statesPruned_, rewireTest_, goalMotion_.size());
+    else
+        OMPL_INFORM("%s: Created %u new states. Checked %u rewire options. %u goal states in tree.", getName().c_str(), statesGenerated_, rewireTest_, goalMotion_.size());
 
     //STa test
     //	output_file << "\n";
@@ -431,8 +474,8 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
 
 ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::extendTree(Motion* toMotion, TreeData& tree, Motion*& result, Motion* nearest)
 {
-    //	std::string homepath = getenv("HOME");
-    //	std::ofstream output_file((homepath + "/extendTree.txt").c_str(), std::ios::out | std::ios::app);
+//    //STa temp
+//    std::cout << "Enter extendTree \n";
 
     bool reach = true;
     std::vector<Motion*>       nbh;
@@ -466,17 +509,23 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
     }
 
 
-    base::SafetyCost state_cost = safe_multi_opt_->safeStateCost(result->state);
-    result->heuristicCost = costToGo(result->state, state_cost);
+    result->stateCost = safe_multi_opt_->safeStateCost(result->state);
 
-    //    output_file << "state_cost = " << state_cost << "\n";
-    //    output_file << "heuristicCost = " << result->heuristicCost << "\n";
-
-    //If the sampled state can't improve the solution, we continue
-    if (result->heuristicCost.getCollisionWorld() || !ssvc_->isValidSelf(result->state) || safe_multi_opt_->isSafetyCostBetterThan(bestCost_, result->heuristicCost))
+    //If the sampled state is in collision, we continue
+    if (result->stateCost.getCollisionWorld() || !ssvc_->isValidSelf(result->state))
     {
         //    	output_file << "return FAILED \n \n";
         //    	output_file.close();
+        return FAILED;
+    }
+
+    base::SafetyCost heuristicCost = result->heuristicCost(safe_multi_opt_);
+
+    //If the sampled state can't improve the solution, we continue
+    if (safe_multi_opt_->isSafetyCostBetterThan(bestCost_, heuristicCost))
+    {
+        //      output_file << "return FAILED \n \n";
+        //      output_file.close();
         return FAILED;
     }
 
@@ -515,7 +564,8 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
     // calculate all costs and distances
     for (std::size_t i = 0 ; i < nbh.size(); ++i)
     {
-        incCosts[i] = safe_multi_opt_->safeFastMotionCost(nbh[i]->state, result->state ,nbh[i]->heuristicCost, result->heuristicCost);
+        //TODO: To be checked
+        incCosts[i] = safe_multi_opt_->safeFastMotionCost(nbh[i]->state, result->state ,nbh[i]->stateCost, result->stateCost);
         costs[i] = safe_multi_opt_->safeCombineCosts(nbh[i]->cost, incCosts[i]);
         exactCost[i] = false;
 
@@ -711,15 +761,19 @@ bool ompl::geometric::SafeBiRRTstar::connectTrees(Motion* nmotion, TreeData& tre
         if (pdef_->getGoal()->isStartGoalPairValid(startMotion->root, goalMotion->root))
         {
 
-            treeConnexion* tc = new treeConnexion;
+            treeConnection* tc = new treeConnection;
 
             tc->startTreeMotion = startMotion;
             tc->goalTreeMotion = goalMotion;
 
             tc->updateWholeMotionCost(safe_multi_opt_);
-            tc->index = connexion_.size();
+            tc->index = treeConnectionIndex_ ++;
 
-            connexion_.push_back(tc);
+            connection_[tc->index] = tc;
+
+            //Each motion needs to know its connections with the other tree
+            startMotion->connectionIndex.insert(tc->index);
+            goalMotion->connectionIndex.insert(tc->index);
 
             //        	//STa temp
             //        	std::cout << "bestCost_ = " << bestCost_ << "\n";
@@ -744,26 +798,33 @@ bool ompl::geometric::SafeBiRRTstar::connectTrees(Motion* nmotion, TreeData& tre
 
 void ompl::geometric::SafeBiRRTstar::removeFromParent(Motion *m)
 {
-    for (std::vector<Motion*>::iterator it = m->parent->children.begin ();
-            it != m->parent->children.end (); ++it)
+    if (m->parent)
     {
-        if (*it == m)
+        for (std::vector<Motion*>::iterator it = m->parent->children.begin ();
+                it != m->parent->children.end (); ++it)
         {
-            m->parent->children.erase(it);
-            break;
+            if (*it == m)
+            {
+                m->parent->children.erase(it);
+                break;
+            }
         }
     }
+//    //STa temp
+//    else if (m->state == startMotion_->state)
+//        std::cout << "\n \n \n ERROR : Start state deleted!! \n \n \n";
 }
 
 void ompl::geometric::SafeBiRRTstar::updateChildCosts(Motion *m)
 {
-    for (std::size_t i = 0; i < m->connexion.size(); ++i)
+    for (boost::unordered_set<size_t>::iterator it = m->connectionIndex.begin(); it != m->connectionIndex.end(); ++it)
     {
-        m->connexion[i]->updateWholeMotionCost(safe_multi_opt_);
-        if (safe_multi_opt_->isSafetyCostBetterThan(m->connexion[i]->wholeMotionCost, bestCost_))
+        treeConnection* tc = connection_.find(*it)->second;
+        tc->updateWholeMotionCost(safe_multi_opt_);
+        if (safe_multi_opt_->isSafetyCostBetterThan(tc->wholeMotionCost, bestCost_))
         {
-            bestCost_ = m->connexion[i]->wholeMotionCost;
-            bestIndex_ = m->connexion[i]->index;
+            bestCost_ = tc->wholeMotionCost;
+            bestIndex_ = tc->index;
             checkForSolution_ = true;
         }
     }
@@ -824,43 +885,165 @@ void ompl::geometric::SafeBiRRTstar::getPlannerData(base::PlannerData &data) con
 }
 
 
-ompl::base::SafetyCost ompl::geometric::SafeBiRRTstar::costToGo(const base::State* state, const base::SafetyCost state_cost , const bool shortest) const
-{
-    base::SafetyCost costToCome, costToGo;
-    if (shortest)
-    {
-        costToCome = safe_multi_opt_->safeCostToCome(state, state_cost);
-        costToGo = safe_multi_opt_->safeCostToGo(state, state_cost);
-    }
-    else
-    {
-        costToCome = state_cost;
-        costToGo = safe_multi_opt_->safeCostToGo(state, state_cost);
-    }
-    return safe_multi_opt_->safeCombineCosts(costToCome, costToGo);
-}
+//ompl::base::SafetyCost ompl::geometric::SafeBiRRTstar::heuristicCost(const base::State* state, const base::SafetyCost state_cost , const bool shortest) const
+//{
+//    base::SafetyCost costToCome, costToGo;
+//    if (shortest)
+//    {
+//        costToCome = safe_multi_opt_->safeCostToCome(state, state_cost);
+//        costToGo = safe_multi_opt_->safeCostToGo(state, state_cost);
+//    }
+//    else
+//    {
+//        costToCome = state_cost;
+//        costToGo = safe_multi_opt_->safeCostToGo(state, state_cost);
+//    }
+//    return safe_multi_opt_->safeCombineCosts(costToCome, costToGo);
+//}
+//
+//ompl::base::SafetyCost ompl::geometric::SafeBiRRTstar::heuristicCost(const Motion *m1, const Motion *m2 , const base::SafetyCost motionCost, const bool shortest) const
+//{
+//    base::SafetyCost costToCome, costToGo;
+//    if (shortest)
+//    {
+//        if (m2->isGoalTree)
+//        {
+//            costToCome = safe_multi_opt_->safeCostToCome(m1->state, m1->heuristicCost);
+//            costToGo = safe_multi_opt_->safeCostToGo(m2->state, m2->heuristicCost);
+//        }
+//        else
+//        {
+//            costToCome = safe_multi_opt_->safeCostToCome(m2->state, m2->heuristicCost);
+//            costToGo = safe_multi_opt_->safeCostToGo(m1->state, m1->heuristicCost);
+//        }
+//    }
+//    else
+//    {
+//        costToCome = m1->cost;
+//        costToGo = m2->cost;
+//    }
+//    return safe_multi_opt_->safeCombineCosts(safe_multi_opt_->safeCombineCosts(costToCome, motionCost), costToGo);
+//}
 
-ompl::base::SafetyCost ompl::geometric::SafeBiRRTstar::costToGo(const Motion *m1, const Motion *m2 , const base::SafetyCost motionCost, const bool shortest) const
+//STa
+int ompl::geometric::SafeBiRRTstar::pruneTree(TreeData tree, bool isStartTree, const base::SafetyCost pruneTreeCost)
 {
-    base::SafetyCost costToCome, costToGo;
-    if (shortest)
+//    //STa temp
+//    std::cout << "\n Enter SafeRRTstar::pruneTree \n";
+//    std::cout << "tree_size = " << tree->size() << "\n";
+//    std::cout << "pruneTreeCost : " << pruneTreeCost << "\n";
+
+    const int tree_size = tree->size();
+    pruneScratchSpace_.newTree.reserve(tree_size);
+    pruneScratchSpace_.newTree.clear();
+    pruneScratchSpace_.toBePruned.reserve(tree_size);
+    pruneScratchSpace_.toBePruned.clear();
+    pruneScratchSpace_.candidates.clear();
+
+    //STa
+    std::vector<size_t> goalToBePrunedIndex;
+
+    //STa
+    if (isStartTree)
+        pruneScratchSpace_.candidates.push_back(startMotion_);
+    else
+        for (size_t i=0; i < goalMotion_.size(); ++i)
+            pruneScratchSpace_.candidates.push_back(goalMotion_[i]);
+
+
+    std::size_t j = 0;
+    while (j != pruneScratchSpace_.candidates.size())
     {
-        if (m2->isGoalTree)
+//        //STa temp
+//        std::cout << "pruneScratchSpace_.candidates.size() : " << pruneScratchSpace_.candidates.size() << "\n";
+
+//        //STa temp
+//        std::cout << "pruneTree1 is calling heuristicCost \n";
+
+        Motion *candidate = pruneScratchSpace_.candidates[j];
+        if (safe_multi_opt_->isSafetyCostBetterThan(pruneTreeCost, candidate->heuristicCost(safe_multi_opt_)))
         {
-            costToCome = safe_multi_opt_->safeCostToCome(m1->state, m1->heuristicCost);
-            costToGo = safe_multi_opt_->safeCostToGo(m2->state, m2->heuristicCost);
+            pruneScratchSpace_.toBePruned.push_back(candidate);
+
+            //Backup goal states that have to be deleted form goalMotion_ vector
+            if (!isStartTree && j < goalMotion_.size())
+            {
+                goalToBePrunedIndex.push_back(j);
+            }
+
+//            //STa temp
+//            std::cout << "pruneTree2 is calling heuristicCost \n";
+//          std::cout << "toBePruned : " << candidate->heuristicCost(safe_multi_opt_) << "\n";
+
         }
         else
         {
-            costToCome = safe_multi_opt_->safeCostToCome(m2->state, m2->heuristicCost);
-            costToGo = safe_multi_opt_->safeCostToGo(m1->state, m1->heuristicCost);
+            pruneScratchSpace_.newTree.push_back(candidate);
+            pruneScratchSpace_.candidates.insert(pruneScratchSpace_.candidates.end(),
+                    candidate->children.begin(), candidate->children.end());
         }
+        j++;
     }
-    else
+
+    // To create the new nn takes one order of magnitude in time more than just checking how many
+    // states would be pruned. Therefore, only prune if it removes a significant amount of states.
+    if ((double)pruneScratchSpace_.newTree.size() / tree_size < pruneStatesThreshold_)
     {
-        costToCome = m1->cost;
-        costToGo = m2->cost;
+        for (std::size_t i = 0; i < pruneScratchSpace_.toBePruned.size(); ++i)
+            deleteBranch(pruneScratchSpace_.toBePruned[i]);
+
+        tree->clear();
+        tree->add(pruneScratchSpace_.newTree);
+
+        if (!isStartTree)
+        {
+            for (size_t i =0; i < goalToBePrunedIndex.size(); ++i)
+            {
+                //Delete goal states from goalMotion_ vector
+                goalMotion_.erase(goalMotion_.begin() + goalToBePrunedIndex[i] - i);
+            }
+        }
+
+//        //STa temp
+//        std::cout << "new tree size = " << tree->size() << "\n";
+//        std::cout << "Exit SafeRRTstar::pruneTree \n";
+        return (tree_size - pruneScratchSpace_.newTree.size());
     }
-    return safe_multi_opt_->safeCombineCosts(safe_multi_opt_->safeCombineCosts(costToCome, motionCost), costToGo);
+//    //STa temp
+//    std::cout << "Exit SafeRRTstar::pruneTree \n \n";
+    return 0;
+}
+
+void ompl::geometric::SafeBiRRTstar::deleteBranch(Motion *motion)
+{
+    removeFromParent(motion);
+
+    std::vector<Motion *>& toDelete = pruneScratchSpace_.candidates;
+    toDelete.clear();
+    toDelete.push_back(motion);
+
+    while (!toDelete.empty())
+    {
+        Motion *mto_delete = toDelete.back();
+        toDelete.pop_back();
+
+        for(std::size_t i = 0; i < mto_delete->children.size(); ++i)
+            toDelete.push_back(mto_delete->children[i]);
+
+        //Remove the tree connections for the pruned motion. We also need to remove the connection index from the other tree.
+        for (boost::unordered_set<size_t>::iterator it = mto_delete->connectionIndex.begin(); it != mto_delete->connectionIndex.end(); ++it)
+        {
+            if (mto_delete->isGoalTree)
+                connection_.find(*it)->second->startTreeMotion->connectionIndex.erase(*it);
+            else
+                connection_.find(*it)->second->goalTreeMotion->connectionIndex.erase(*it);
+
+            connection_.erase(*it);
+        }
+
+
+        si_->freeState(mto_delete->state);
+        delete mto_delete;
+    }
 }
 
