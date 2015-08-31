@@ -47,57 +47,36 @@
 
 ompl::base::SafetyObjective::
 SafetyObjective(const SpaceInformationPtr &si) :
-	OptimizationObjective(si),
-	smv_(NULL),
-	fast_dist_(false),
-	travel_dist_limit_(0.01)
+SafetyObjective(si, NULL, false, 0.01, identityCost())
 {
-    this->setCostThreshold(identityCost());
-
-    //TODO : return error if si_ has not a SafeStateValidityChecker
-    ssvc_ = static_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
 }
 
 ompl::base::SafetyObjective::
 SafetyObjective(const SpaceInformationPtr &si, ompl::base::SafeMotionValidator* smv) :
-	OptimizationObjective(si),
-	smv_(smv),
-	fast_dist_(false),
-	travel_dist_limit_(0.01)
+SafetyObjective(si, smv, false, 0.01, identityCost())
 {
-	this->setCostThreshold(identityCost());
-
-	//TODO : return error if si_ has not a SafeStateValidityChecker
-	ssvc_ = static_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
 }
 
 ompl::base::SafetyObjective::
 SafetyObjective(const SpaceInformationPtr &si, ompl::base::SafeMotionValidator* smv, bool fast_dist, double travel_dist_limit) :
+SafetyObjective(si, smv, fast_dist, travel_dist_limit, identityCost())
+{
+}
+
+ompl::base::SafetyObjective::
+SafetyObjective(const SpaceInformationPtr &si, ompl::base::SafeMotionValidator* smv, bool fast_dist, double travel_dist_limit, Cost cost_threshold) :
 	OptimizationObjective(si),
 	smv_(smv),
 	fast_dist_(fast_dist),
 	travel_dist_limit_(travel_dist_limit)
 {
-	this->setCostThreshold(identityCost());
+    isMinMaxObjective_ = true;
+	this->setCostThreshold(cost_threshold);
 
 	//TODO : return error if si_ has not a SafeStateValidityChecker
 	ssvc_ = static_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
 }
 
-
-
-ompl::base::SafetyObjective::
-SafetyObjective(const SpaceInformationPtr &si, double cost) :
-	OptimizationObjective(si),
-	smv_(NULL),
-	fast_dist_(false),
-	travel_dist_limit_(0.01)
-{
-	this->setCostThreshold(Cost(cost));
-
-	//TODO : return error if si_ has not a SafeStateValidityChecker
-	ssvc_ = static_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
-}
 
 bool ompl::base::SafetyObjective::isSymmetric() const
 {

@@ -152,19 +152,25 @@ bool ompl::base::SafeMultiOptimizationObjective::isSafetyCostBetterThan(SafetyCo
 {
 	//std::cou << "enter isSafetyCostBetterThan \n";
 
-	if (c1.getIndividualCostSize() != components_.size())
-	{
-		//std::cou << "exit isSafetyCostBetterThan \n";
+    if (c1.getIndividualCostSize() != components_.size() || c2.getIndividualCostSize() != components_.size())
+    {
+        OMPL_ERROR("SafeMultiOptimizationObjective isSafetyCostBetterThan: Invalid individual cost size. c1 is of size %u, c2 is of size %u and the valid size is %u", c1.getIndividualCostSize(), c2.getIndividualCostSize(), components_.size());
+    }
 
-		return false;
-	}
-	else if (c2.getIndividualCostSize() != components_.size())
-	{
+//	if (c1.getIndividualCostSize() != components_.size())
+//	{
+//		//std::cou << "exit isSafetyCostBetterThan \n";
+//
+//		return false;
+//	}
+//	else if (c2.getIndividualCostSize() != components_.size())
+//	{
+//
+//		//std::cou << "exit isSafetyCostBetterThan \n";
+//
+//		return true;
+//	}
 
-		//std::cou << "exit isSafetyCostBetterThan \n";
-
-		return true;
-	}
 	double improv1 =0, improv2 =0;
 	for (size_t i=0; i< components_.size(); ++i)
 	{
@@ -188,6 +194,43 @@ bool ompl::base::SafeMultiOptimizationObjective::isSafetyCostBetterThan(SafetyCo
 	//std::cou << "exit isSafetyCostBetterThan \n";
 
 	return improv1  > improv2  + magic::BETTER_PATH_COST_MARGIN;
+}
+
+bool ompl::base::SafeMultiOptimizationObjective::isMinMaxSafetyCostBetterThan(SafetyCost c1, SafetyCost c2) const
+{
+    //std::cou << "enter isMinMaxSafetyCostBetterThan \n";
+
+    if (c1.getIndividualCostSize() != components_.size() || c2.getIndividualCostSize() != components_.size())
+    {
+        OMPL_ERROR("SafeMultiOptimizationObjective isMinMaxSafetyCostBetterThan: Invalid individual cost size. c1 is of size %u, c2 is of size %u and the valid size is %u", c1.getIndividualCostSize(), c2.getIndividualCostSize(), components_.size());
+    }
+
+    double improv1 =0, improv2 =0;
+    for (size_t i=0; i< components_.size(); ++i)
+    {
+        if (components_[i].objective->isMinMaxObjective())
+        {
+            double rate = c1.getIndividualCost(i).value() / c2.getIndividualCost(i).value();
+            if (int(i) == safety_obj_index_)
+            {
+                rate *= double(c1.getObjectDangerFactor())/c2.getObjectDangerFactor();
+            }
+            if (components_[i].objective->infiniteCost().value() == 0)
+            {
+                improv1 += rate * components_[i].weight;
+                improv2 += (1/rate) * components_[i].weight;
+            }
+            else
+            {
+                improv2 += rate * components_[i].weight;
+                improv1 += (1/rate) * components_[i].weight;
+            }
+        }
+    }
+
+    //std::cou << "exit isSafetyCostBetterThan \n";
+
+    return improv1  > improv2  + magic::BETTER_PATH_COST_MARGIN;
 }
 
 double ompl::base::SafeMultiOptimizationObjective::safetyCostImprovement(SafetyCost c1, SafetyCost c2) const

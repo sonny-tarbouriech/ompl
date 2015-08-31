@@ -36,6 +36,7 @@
 
 #include "ompl/geometric/planners/cforest/SafeCForest.h"
 #include "ompl/geometric/planners/rrt/SafeRRTstar.h"
+#include "ompl/geometric/planners/rrt/SafeBiRRTstar.h"
 
 #include "ompl/base/objectives/SafetyObjective.h"
 #include "ompl/base/objectives/ManipulabilityObjective.h"
@@ -55,7 +56,8 @@ ompl::geometric::SafeCForest::SafeCForest(const base::SpaceInformationPtr &si) :
 
 	prune_ = false;
 
-	numThreads_ = std::max(boost::thread::hardware_concurrency(), 2u);
+//	numThreads_ = std::max(boost::thread::hardware_concurrency(), 2u);
+	numThreads_ = 2;
 
 	Planner::declareParam<bool>("prune", this, &SafeCForest::setPrune, &SafeCForest::getPrune, "0,1");
 	Planner::declareParam<unsigned int>("num_threads", this, &SafeCForest::setNumThreads, &SafeCForest::getNumThreads, "0:64");
@@ -154,12 +156,18 @@ void ompl::geometric::SafeCForest::setup()
 		if (planners_.empty())
 		{
 			OMPL_INFORM("%s: Number and type of instances not specified. Defaulting to %d instances of SafeRRTstar.", getName().c_str(), numThreads_);
-			addPlannerInstances<SafeRRTstar>(numThreads_);
+			addPlannerInstances<SafeBiRRTstar>(numThreads_);
 		}
 
 		for (std::size_t i = 0; i < planners_.size() ; ++i)
+		{
 			if (!planners_[i]->isSetup())
 				planners_[i]->setup();
+
+	        //STa
+	        if (planners_[i]->getName().compare("SafeBiRRTstar") == 0)
+	                static_cast<SafeBiRRTstar*>(planners_[i].get())->setBestSharedCost(&bestCost_);
+		}
 		//STa
 		getOptimalSafetyObjective();
 		pdef_->setOptimizationObjective(opt_);
@@ -267,12 +275,13 @@ void ompl::geometric::SafeCForest::newSolutionFound(const base::Planner *planner
 		statesToShare.reserve(states.size());
 		for (std::vector<const base::State *>::const_iterator st = states.begin(); st != states.end(); ++st)
 		{
-			if (statesShared_.find(*st) == statesShared_.end())
-			{
-				statesShared_.insert(*st);
+		    //STa : When used with SafeBiRRTstar, no need to filter as the planner already did it.
+//			if (statesShared_.find(*st) == statesShared_.end())
+//			{
+//				statesShared_.insert(*st);
 				statesToShare.push_back(*st);
 				++numStatesShared_;
-			}
+//			}
 		}
 	}
 	newSolutionFoundMutex_.unlock();

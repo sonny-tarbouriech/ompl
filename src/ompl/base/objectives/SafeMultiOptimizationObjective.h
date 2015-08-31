@@ -27,6 +27,7 @@ namespace ompl
             /** \brief Since we wish to maximize safety, and costs are equivalent to path safety, we return the greater of the two cost values. */
             virtual bool isCostBetterThan(Cost c1, Cost c2) const;
             bool isSafetyCostBetterThan(SafetyCost c1, SafetyCost c2) const;
+            bool isMinMaxSafetyCostBetterThan(SafetyCost c1, SafetyCost c2) const;
             double safetyCostImprovement(SafetyCost c1, SafetyCost c2) const;
 
             virtual Cost motionCost(const State *s1, const State *s2) const;

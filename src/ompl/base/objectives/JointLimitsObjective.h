@@ -14,7 +14,7 @@ namespace ompl
         public:
         	JointLimitsObjective(const SpaceInformationPtr &si);
 
-        	JointLimitsObjective(const SpaceInformationPtr &si, double cost);
+        	JointLimitsObjective(const SpaceInformationPtr &si, Cost cost_threshold);
 
         	virtual bool isSymmetric() const;
 

@@ -46,9 +46,10 @@ void ompl::base::CForestStateSampler::sampleUniform(State *state)
 
 void ompl::base::CForestStateSampler::sampleUniformNear(State *state, const State *near, const double distance)
 {
-    if (!statesToSample_.empty())
-        getNextSample(state);
-    else
+    //STa : Don't sample shared state in this function as it is not its role.
+//    if (!statesToSample_.empty())
+//        getNextSample(state);
+//    else
         sampler_->sampleUniformNear(state, near, distance);
 }
 

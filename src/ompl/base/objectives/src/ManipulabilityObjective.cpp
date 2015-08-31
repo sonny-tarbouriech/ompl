@@ -45,20 +45,17 @@
 
 ompl::base::ManipulabilityObjective::
 ManipulabilityObjective(const SpaceInformationPtr &si) :
-	OptimizationObjective(si)
+ManipulabilityObjective(si, identityCost())
 {
-    this->setCostThreshold(identityCost());
-
-    //TODO : return error if si_ has not a SafeStateValidityChecker
-        ssvc_ = dynamic_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
 }
 
 
 ompl::base::ManipulabilityObjective::
-ManipulabilityObjective(const SpaceInformationPtr &si, double cost) :
+ManipulabilityObjective(const SpaceInformationPtr &si, Cost cost_threshold) :
 	OptimizationObjective(si)
 {
-	this->setCostThreshold(Cost(cost));
+    isMinMaxObjective_ = true;
+	this->setCostThreshold(cost_threshold);
 
 	//TODO : return error if si_ has not a SafeStateValidityChecker
 	    ssvc_ = dynamic_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());

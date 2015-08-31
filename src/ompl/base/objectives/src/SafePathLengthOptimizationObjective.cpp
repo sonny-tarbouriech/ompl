@@ -6,11 +6,8 @@
 
 ompl::base::SafePathLengthOptimizationObjective::
 SafePathLengthOptimizationObjective(const SpaceInformationPtr &si) :
-ompl::base::OptimizationObjective(si),
-goal_(NULL),
-start_state_(NULL)
+SafePathLengthOptimizationObjective(si, NULL, NULL)
 {
-	description_ = "Safe Path Length";
 }
 
 ompl::base::SafePathLengthOptimizationObjective::
@@ -19,12 +16,13 @@ ompl::base::OptimizationObjective(si),
 goal_(goal),
 start_state_(start)
 {
+    isMinMaxObjective_ = false;
 	description_ = "Safe Path Length";
 }
 
 bool ompl::base::SafePathLengthOptimizationObjective::isSymmetric() const
 {
-	return false;
+	return true;
 }
 
 ompl::base::Cost ompl::base::SafePathLengthOptimizationObjective::identityCost() const

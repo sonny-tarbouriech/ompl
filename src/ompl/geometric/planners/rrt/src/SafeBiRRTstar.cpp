@@ -60,7 +60,9 @@ ompl::geometric::SafeBiRRTstar::SafeBiRRTstar(const base::SpaceInformationPtr &s
 base::Planner(si, "SafeBiRRTstar"),
 maxDistance_(0.0),
 lastGoalMotion_(NULL),
-prune_(false),
+prune_(true),
+localBias_(true),
+localBiasAttempt_(1),
 pruneStatesThreshold_(1),
 iterations_(0),
 bestCost_(base::SafetyCost()),
@@ -96,9 +98,9 @@ void ompl::geometric::SafeBiRRTstar::treeConnection::updateWholeMotionCost(const
     wholeMotionCost = safe_multi_opt->safeCombineCosts(startTreeMotion->cost, goalTreeMotion->cost);
 }
 
-std::vector<ompl::base::State*> ompl::geometric::SafeBiRRTstar::treeConnection::getPath()
+std::vector<const ompl::base::State*> ompl::geometric::SafeBiRRTstar::treeConnection::getPath()
 {
-    std::vector<base::State*> solutionStates;
+    std::vector<const base::State*> solutionStates;
     Motion* solution = startTreeMotion;
     while(solution != NULL)
     {
@@ -113,6 +115,66 @@ std::vector<ompl::base::State*> ompl::geometric::SafeBiRRTstar::treeConnection::
         solution = solution->parent;
     }
     return solutionStates;
+}
+
+std::vector<const ompl::base::State*> ompl::geometric::SafeBiRRTstar::treeConnection::getStatesToShare()
+{
+    std::vector<const base::State*> statesToShare;
+    Motion* currentMotion = startTreeMotion;
+    //We don't want to share the start state as it is already present in other trees
+    while(currentMotion->parent != NULL)
+    {
+        if (!currentMotion->isStateShared)
+        {
+            statesToShare.insert(statesToShare.begin(), currentMotion->state);
+            currentMotion->isStateShared = true;
+        }
+        currentMotion = currentMotion->parent;
+    }
+    //Because startTreeMotion->state == goalTreeMotion->state, the state is already shared
+    goalTreeMotion->isStateShared = true;
+    // We need to check one of their parents to avoid a duplicate state in the solution path
+    currentMotion = goalTreeMotion->parent;
+    //Same for goal state
+    while(currentMotion->parent != NULL)
+    {
+        if (!currentMotion->isStateShared)
+        {
+            statesToShare.push_back(currentMotion->state);
+            currentMotion->isStateShared = true;
+        }
+        currentMotion = currentMotion->parent;
+    }
+    return statesToShare;
+}
+
+void ompl::geometric::SafeBiRRTstar::treeConnection::getWorstMotion(const base::SafeMultiOptimizationObjective* safe_multi_opt, Motion*& worstMotion, bool& isStartTree)
+{
+    worstMotion = startTreeMotion;
+    Motion* currentMotion = startTreeMotion->parent;
+    while(currentMotion->parent != NULL)
+    {
+        //It is irrelevant to compare incCost for the path length objective, compare only minmax objective
+        if (safe_multi_opt->isMinMaxSafetyCostBetterThan(worstMotion->incCost, currentMotion->incCost))
+        {
+            worstMotion = currentMotion;
+            isStartTree = true;
+        }
+
+        currentMotion = currentMotion->parent;
+    }
+
+    currentMotion = goalTreeMotion;
+    while(currentMotion->parent != NULL)
+    {
+        if (safe_multi_opt->isMinMaxSafetyCostBetterThan(worstMotion->incCost, currentMotion->incCost))
+        {
+            worstMotion = currentMotion;
+            isStartTree = false;
+        }
+
+        currentMotion = currentMotion->parent;
+    }
 }
 
 ompl::base::SafetyCost ompl::geometric::SafeBiRRTstar::Motion::heuristicCost(const base::SafeMultiOptimizationObjective* safe_multi_opt,  const bool shortest) const
@@ -215,11 +277,16 @@ void ompl::geometric::SafeBiRRTstar::clear()
 
 ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::PlannerTerminationCondition &ptc)
 {
-    //	//STa test
-    //	std::string homepath = getenv("HOME");
-    //	std::ofstream output_file((homepath + "/safebirrtstar.txt").c_str(), std::ios::out | std::ios::app);
+    //STa test
+//    std::string homepath = getenv("HOME");
+//    std::ofstream output_file((homepath + "/safebirrtstar.txt").c_str(), std::ios::out | std::ios::app);
     //	ompl::time::point init = ompl::time::now();
     //	ompl::time::duration dur;
+
+    //STa test
+    bool localstate = false;
+    size_t localStateImprovementCount = 0;
+    size_t randomStateImprovementCount = 0;
 
     checkValidity();
 
@@ -314,10 +381,21 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
     TreeData tree = tStart_;
     TreeData otherTree = tGoal_;
 
+    //STa : If the planner is used with SafeCforest, bestSharedCost_ is updated with the best cost among planning threads. Else, it is the same as BestCost_
+    const base::ReportSafeIntermediateSolutionFn safeIntermediateSolutionCallback = pdef_->getSafeIntermediateSolutionCallback();
+    if (!safeIntermediateSolutionCallback)
+        bestSharedCost_ = &bestCost_;
+
+    base::SafetyCost currentBestSharedCost;
+
     while (ptc == false)
     {
         iterations_++;
         checkForSolution_ = false;
+
+        currentBestSharedCost = *bestSharedCost_;
+        //STa temp
+        std::cout << "currentBestSharedCost = " << currentBestSharedCost << "\n";
 
         // Add available goal states
         while (pis_.haveMoreGoalStates())
@@ -336,9 +414,53 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
                 goalMotion_.push_back(motion);
             }
         }
+        // Local optimization
+       if (localBias_ && feasibleSolution && rng_.uniform01() < improveSolutionBias_)
+       {
+           //TODO : Store the worst motion in the treeConnection element and update when necessary
+           Motion* worst_motion;
+           bool isStartTree, canImprove;
+           connection_[bestIndex_]->getWorstMotion(safe_multi_opt_, worst_motion, isStartTree);
+           double radius = si_->getStateSpace()->distance(worst_motion->state, worst_motion->parent->state)/2;
+           base::State* worst_state = si_->allocState();
+           si_->getStateSpace()->interpolate(worst_motion->state, worst_motion->parent->state,0.5,worst_state);
+           base::SafetyCost rstateCost;
+           size_t attempt = 0;
+           do
+           {
+               sampler_->sampleUniformNear(rstate, worst_state, radius);
+               rstateCost = safe_multi_opt_->safeStateCost(rstate);
+               attempt++;
+               canImprove = (!rstateCost.getCollisionWorld() && safe_multi_opt_->isMinMaxSafetyCostBetterThan(rstateCost, worst_motion->incCost));
+           } while(!canImprove && (attempt < localBiasAttempt_));
 
-        // sample random state
-        sampler_->sampleUniform(rstate);
+           if (!canImprove)
+               continue;
+
+
+           if (isStartTree)
+           {
+               tree = tStart_;
+               otherTree = tGoal_;
+           }
+           else
+           {
+               tree = tGoal_;
+               otherTree = tStart_;
+           }
+           //STa test
+//           std::cout << "worst motion incCost = " << worst_motion->incCost << "\n";
+//           std::cout << "rstateCost = " << rstateCost << "\n";
+           localstate = true;
+       }
+       else
+       {
+           // sample random state
+           sampler_->sampleUniform(rstate);
+
+           //STa test
+           localstate = false;
+       }
 
 
         statesGenerated_++;
@@ -370,7 +492,11 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
         if (checkForSolution_)
         {
             //STa temp
-            std::cout << "bestCost_ = " << bestCost_ << "\n";
+            if (localstate)
+                localStateImprovementCount++;
+            else
+                randomStateImprovementCount++;
+//            std::cout << "bestCost_ = " << bestCost_ << "\n";
             //			//STa test
             //			dur = ompl::time::now() - init;
             //			output_file <<  bestCost_ << ompl::time::now() << "\n";
@@ -383,13 +509,30 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
                 break;
             }
 
-            if (prune_)
+            //Share the solution states with the others planning threads
+            if (safeIntermediateSolutionCallback)
             {
-                statesPruned_ += pruneTree(tStart_, true, bestCost_);
-                statesPruned_ += pruneTree(tGoal_, false, bestCost_);
+                std::vector<const base::State *> statesToShare = connection_[bestIndex_]->getStatesToShare();
+                safeIntermediateSolutionCallback(this, statesToShare, bestCost_);
             }
         }
 
+        //STa temp
+        std::cout << "bestSharedCost_ = " << *bestSharedCost_ << "\n";
+
+        //Generic way to generate the pruning process
+        if (prune_ && safe_multi_opt_->isSafetyCostBetterThan(*bestSharedCost_, currentBestSharedCost))
+        {
+            statesPruned_ += pruneTree(tStart_, true, *bestSharedCost_);
+            statesPruned_ += pruneTree(tGoal_, false, *bestSharedCost_);
+
+            //If CForest is running, all the connection for this planner could be removed by the pruning process. If the best solution is removed, reset the best cost.
+            if (connection_.find(bestIndex_) == connection_.end())
+            {
+                feasibleSolution = false;
+                bestCost_ = safe_multi_opt_->infiniteCost();
+            }
+        }
 
         std::swap(tree, otherTree);
     }
@@ -402,7 +545,7 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
 
         ptc.terminate();
         // construct the solution path
-        std::vector<base::State*> mpath = connection_[bestIndex_]->getPath();
+        std::vector<const base::State*> mpath = connection_[bestIndex_]->getPath();
 
 
         // set the solution path
@@ -457,9 +600,15 @@ ompl::base::PlannerStatus ompl::geometric::SafeBiRRTstar::solve(const base::Plan
     else
         OMPL_INFORM("%s: Created %u new states. Checked %u rewire options. %u goal states in tree.", getName().c_str(), statesGenerated_, rewireTest_, goalMotion_.size());
 
-    //STa test
-    //	output_file << "\n";
-    //	output_file.close();
+//    //STa test
+//    output_file << improveSolutionBias_ << " "
+//                << localBiasAttempt_ << " "
+//                << localStateImprovementCount << " "
+//                << --randomStateImprovementCount << " "
+//                << statesGenerated_ << " "
+//                << rewireTest_ << " "
+//                << bestCost_ << "\n";
+//    output_file.close();
 
     return feasibleSolution ? base::PlannerStatus::EXACT_SOLUTION : base::PlannerStatus::TIMEOUT;
 }
@@ -474,6 +623,10 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
 
 ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::extendTree(Motion* toMotion, TreeData& tree, Motion*& result, Motion* nearest)
 {
+//    //STa test
+//    std::string homepath = getenv("HOME");
+//    std::ofstream output_file((homepath + "/extendTree.txt").c_str(), std::ios::out | std::ios::app);
+
 //    //STa temp
 //    std::cout << "Enter extendTree \n";
 
@@ -496,7 +649,7 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
     // Compute the state to extend toward
     double d = si_->distance(nearest->state, result->state);
 
-    //    output_file << "d = " << d << "\n";
+//    output_file << "d = " << d << "\n";
 
     // Truncate the random state to be no more than maxDistance_ from nearest neighbor
     if (d > maxDistance_)
@@ -505,7 +658,7 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
         d = maxDistance_;
         reach = false;
 
-        //        output_file << "d = " << d << "\n";
+//        output_file << "d = " << d << "\n";
     }
 
 
@@ -514,18 +667,18 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
     //If the sampled state is in collision, we continue
     if (result->stateCost.getCollisionWorld() || !ssvc_->isValidSelf(result->state))
     {
-        //    	output_file << "return FAILED \n \n";
-        //    	output_file.close();
+//        output_file << "return FAILED \n \n";
+//        output_file.close();
         return FAILED;
     }
 
     base::SafetyCost heuristicCost = result->heuristicCost(safe_multi_opt_);
 
     //If the sampled state can't improve the solution, we continue
-    if (safe_multi_opt_->isSafetyCostBetterThan(bestCost_, heuristicCost))
+    if (safe_multi_opt_->isSafetyCostBetterThan(*bestSharedCost_, heuristicCost))
     {
-        //      output_file << "return FAILED \n \n";
-        //      output_file.close();
+//        output_file << "return FAILED \n \n";
+//        output_file.close();
         return FAILED;
     }
 
@@ -569,8 +722,8 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
         costs[i] = safe_multi_opt_->safeCombineCosts(nbh[i]->cost, incCosts[i]);
         exactCost[i] = false;
 
-        //    	output_file << "fast incCosts[" << i <<"] = " << incCosts[i] << "\n";
-        //    	output_file << "fast costs[" << i <<"] = " << costs[i] << "\n";
+//        output_file << "fast incCosts[" << i <<"] = " << incCosts[i] << "\n";
+//        output_file << "fast costs[" << i <<"] = " << costs[i] << "\n";
     }
 
     // sort the nodes
@@ -590,12 +743,11 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
     // nmotion (with populated cost fields!).
     size_t cpt = 0;
 
-    //STa TODO : Add a factor to favor nearer states
+    //STa TODO : Add a factor to favor nearer states?
     for (std::vector<std::size_t>::const_iterator i = sortedCostIndices.begin();
             i != sortedCostIndices.begin() + nbh.size();
             ++i)
     {
-
         incCosts[*i] = safe_multi_opt_->safeMotionCost(nbh[*i]->state, result->state);
         costs[*i] = safe_multi_opt_->safeCombineCosts(nbh[*i]->cost, incCosts[*i]);
         exactCost[*i]=true;
@@ -605,12 +757,12 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
         else
             check_motion = safe_motion_validator_->checkMotionWorldIndividualLinks(nbh[*i]->state, result->state, travel_dist_limit_, fast_dist_) && safe_motion_validator_->checkMotionSelfCCDiscrete(nbh[*i]->state, result->state, 1);
 
-        //    	output_file << "exact incCosts[" << *i <<"] = " << incCosts[*i] << "\n";
-        //    	output_file << "exact costs[" << *i <<"] = " << costs[*i] << "\n";
+//        output_file << "exact incCosts[" << *i <<"] = " << incCosts[*i] << "\n";
+//        output_file << "exact costs[" << *i <<"] = " << costs[*i] << "\n";
 
         if (check_motion)
         {
-            //	    	output_file << "Parent = " << *i << "\n";
+//            output_file << "Parent = " << *i << "\n";
 
             valid[*i] = 1;
             //Is the exact cost improved?
@@ -623,6 +775,7 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
                 result->isGoalTree = nbh[*i]->isGoalTree;
             }
 
+            //If this is not the last neighbor but we are sure this is the best one, we can break
             if ((cpt >= nbh.size() - 1) || safe_multi_opt_->isSafetyCostBetterThan(result->cost, costs[*(i+1)]))
                 break;
         }
@@ -632,8 +785,8 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
 
     if(result->parent == NULL)
     {
-        //    	output_file << "return FAILED \n \n";
-        //    	output_file.close();
+//        output_file << "return FAILED \n \n";
+//        output_file.close();
         return FAILED;
     }
 
@@ -646,67 +799,63 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
         base::SafetyCost nbhIncCost;
         base::SafetyCost nbhNewCost;
 
-        bool motionValid;
+        //STa : Check if the motion is invalid or if the neighbor belongs to the same branch
+        if ((valid[i] == -1) || result->isParent(nbh[i]))
+            continue;
 
-        //STa : Check if the neighbor belongs to the same branch
-        if (!result->isParent(nbh[i]))
+
+        //STa : All objectives are symmetric with the exception of Path length obj
+        // Fast cost
+        nbhIncCost = safe_multi_opt_->safeMotionCostSymmetric(result->state, nbh[i]->state, incCosts[i]);
+        nbhNewCost = safe_multi_opt_->safeCombineCosts(result->cost, nbhIncCost);
+
+//        output_file << "fast nbhIncCost[" << i <<"] = " << nbhIncCost << "\n";
+//        output_file << "fast nbhNewCost[" << i <<"] = " << nbhNewCost << "\n";
+
+        if (!safe_multi_opt_->isSafetyCostBetterThan(nbhNewCost, nbh[i]->cost))
+            continue;
+
+        if(!exactCost[i])
         {
-            //STa : All objectives are symmetric with the exception of Path length obj
-            // Fast cost
-            nbhIncCost = safe_multi_opt_->safeMotionCostSymmetric(result->state, nbh[i]->state, incCosts[i]);
+            //Exact cost
+            nbhIncCost = safe_multi_opt_->safeMotionCost(result->state, nbh[i]->state);
             nbhNewCost = safe_multi_opt_->safeCombineCosts(result->cost, nbhIncCost);
 
-            //	    	output_file << "fast nbhIncCost[" << i <<"] = " << nbhIncCost << "\n";
-            //	    	output_file << "fast nbhNewCost[" << i <<"] = " << nbhNewCost << "\n";
+            if (nbhIncCost.getCollisionWorld() || !safe_multi_opt_->isSafetyCostBetterThan(nbhNewCost, nbh[i]->cost))
+                continue;
 
-            if (safe_multi_opt_->isSafetyCostBetterThan(nbhNewCost, nbh[i]->cost))
-            {
-                if (valid[i] == 0)
-                {
-                    if(!exactCost[i])
-                    {
-                        //Exact cost
-                        nbhIncCost = safe_multi_opt_->safeMotionCost(result->state, nbh[i]->state);
-                        nbhNewCost = safe_multi_opt_->safeCombineCosts(result->cost, nbhIncCost);
-
-                        //				    	output_file << "exact nbhIncCost[" << i <<"] = " << nbhIncCost << "\n";
-                        //				    	output_file << "exact nbhNewCost[" << i <<"] = " << nbhNewCost << "\n";
-                    }
-
-                    if (exactCost[i] || safe_multi_opt_->isSafetyCostBetterThan(nbhNewCost, nbh[i]->cost))
-                    {
-                        if (safe_multi_opt_->hasSafetyObjective())
-                            motionValid = (!nbhIncCost.getCollisionWorld()) && safe_motion_validator_->checkMotionSelfCCDiscrete(result->state, nbh[i]->state, 1);
-                        else
-                            motionValid = safe_motion_validator_->checkMotionWorldIndividualLinks(result->state, nbh[i]->state, travel_dist_limit_, fast_dist_) && safe_motion_validator_->checkMotionSelfCCDiscrete(result->state, nbh[i]->state, 1);
-
-                        if (motionValid)
-                        {
-                            //							output_file << "Child = " << i << "\n";
-
-                            // Remove this node from its parent list
-                            removeFromParent (nbh[i]);
-
-                            // Add this node to the new parent
-                            nbh[i]->parent = result;
-                            nbh[i]->incCost = nbhIncCost;
-                            nbh[i]->cost = nbhNewCost;
-                            nbh[i]->parent->children.push_back(nbh[i]);
-
-                            // Update the costs of the node's children
-                            updateChildCosts(nbh[i]);
-                        }
-                    }
-                }
-            }
+//            output_file << "exact nbhIncCost[" << i <<"] = " << nbhIncCost << "\n";
+//            output_file << "exact nbhNewCost[" << i <<"] = " << nbhNewCost << "\n";
         }
+
+        bool motionValid = safe_motion_validator_->checkMotionSelfCCDiscrete(result->state, nbh[i]->state, 1);
+        if (!safe_multi_opt_->hasSafetyObjective() && motionValid)
+            motionValid = safe_motion_validator_->checkMotionWorldIndividualLinks(result->state, nbh[i]->state, travel_dist_limit_, fast_dist_);
+
+        if (motionValid)
+        {
+//            output_file << "Child = " << i << "\n";
+
+            // Remove this node from its parent list
+            removeFromParent (nbh[i]);
+
+            // Add this node to the new parent
+            nbh[i]->parent = result;
+            nbh[i]->incCost = nbhIncCost;
+            nbh[i]->cost = nbhNewCost;
+            nbh[i]->parent->children.push_back(nbh[i]);
+
+            // Update the costs of the node's children
+            updateChildCosts(nbh[i]);
+        }
+
     }
 
-    //	if (reach)
-    //		output_file << "return SUCCESS \n \n";
-    //	else
-    //		output_file << "return ADVANCED \n \n";
-    //	output_file.close();
+//    if (reach)
+//        output_file << "return SUCCESS \n \n";
+//    else
+//        output_file << "return ADVANCED \n \n";
+//    output_file.close();
 
     return reach ? SUCCESS : ADVANCED;
 
@@ -741,7 +890,7 @@ bool ompl::geometric::SafeBiRRTstar::connectTrees(Motion* nmotion, TreeData& tre
         {
             nearest = next;
 
-            //    		std::cout << "result == ADVANCED \n";
+//            std::cout << "result == ADVANCED \n";
 
             // xmotion may get trashed during extension, so we reload it here
             //    		si_->copyState(xmotion->state, nmotion->state);  // xmotion may get trashed during extension, so we reload it here
@@ -751,7 +900,7 @@ bool ompl::geometric::SafeBiRRTstar::connectTrees(Motion* nmotion, TreeData& tre
     // Successful connection
     if (result == SUCCESS)
     {
-        //    	std::cout << "result == SUCCESS \n";
+//        std::cout << "result == SUCCESS \n";
 
         bool treeIsStart = tree == tStart_;
         Motion* startMotion = treeIsStart ? next : nmotion;
@@ -789,8 +938,8 @@ bool ompl::geometric::SafeBiRRTstar::connectTrees(Motion* nmotion, TreeData& tre
             return true;
         }
     }
-    //    else if (result == FAILED)
-    //    	std::cout << "result == FAILED \n";
+//        else if (result == FAILED)
+//        	std::cout << "result == FAILED \n";
 
     return false;
 }
@@ -885,22 +1034,22 @@ void ompl::geometric::SafeBiRRTstar::getPlannerData(base::PlannerData &data) con
 }
 
 
-//ompl::base::SafetyCost ompl::geometric::SafeBiRRTstar::heuristicCost(const base::State* state, const base::SafetyCost state_cost , const bool shortest) const
-//{
-//    base::SafetyCost costToCome, costToGo;
-//    if (shortest)
-//    {
-//        costToCome = safe_multi_opt_->safeCostToCome(state, state_cost);
-//        costToGo = safe_multi_opt_->safeCostToGo(state, state_cost);
-//    }
-//    else
-//    {
-//        costToCome = state_cost;
-//        costToGo = safe_multi_opt_->safeCostToGo(state, state_cost);
-//    }
-//    return safe_multi_opt_->safeCombineCosts(costToCome, costToGo);
-//}
-//
+ompl::base::SafetyCost ompl::geometric::SafeBiRRTstar::heuristicCost(const base::State* state, const base::SafetyCost state_cost , const bool shortest) const
+{
+    base::SafetyCost costToCome, costToGo;
+    if (shortest)
+    {
+        costToCome = safe_multi_opt_->safeCostToCome(state, state_cost);
+        costToGo = safe_multi_opt_->safeCostToGo(state, state_cost);
+    }
+    else
+    {
+        costToCome = state_cost;
+        costToGo = safe_multi_opt_->safeCostToGo(state, state_cost);
+    }
+    return safe_multi_opt_->safeCombineCosts(costToCome, costToGo);
+}
+
 //ompl::base::SafetyCost ompl::geometric::SafeBiRRTstar::heuristicCost(const Motion *m1, const Motion *m2 , const base::SafetyCost motionCost, const bool shortest) const
 //{
 //    base::SafetyCost costToCome, costToGo;

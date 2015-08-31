@@ -52,8 +52,7 @@ namespace ompl
             SafetyObjective(const SpaceInformationPtr &si);
             SafetyObjective(const SpaceInformationPtr &si, ompl::base::SafeMotionValidator* smv);
             SafetyObjective(const SpaceInformationPtr &si, ompl::base::SafeMotionValidator* smv, bool fast_dist, double travel_dist_limit);
-            SafetyObjective(const SpaceInformationPtr &si, double cost);
-
+            SafetyObjective(const SpaceInformationPtr &si, ompl::base::SafeMotionValidator* smv, bool fast_dist, double travel_dist_limit, Cost cost_threshold);
             virtual bool isSymmetric() const;
 
             /** \brief Defined as the safety of the state \e s, which is computed using the StateValidityChecker in this objective's SpaceInformation */

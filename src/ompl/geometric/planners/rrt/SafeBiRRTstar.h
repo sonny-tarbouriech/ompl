@@ -134,6 +134,13 @@ namespace ompl
                 return boost::lexical_cast<std::string>(bestCost_);
             }
 
+            //STa
+            void setBestSharedCost(const base::SafetyCost* bestSharedCost)
+            {
+                bestSharedCost_ = bestSharedCost;
+            }
+
+
         protected:
 
             class treeConnection;
@@ -148,6 +155,7 @@ namespace ompl
                     parent(NULL),
                     root(NULL),
                     isGoalTree(false),
+                    isStateShared(false),
                     otherTreeConnectionFailure(0)
 
 
@@ -196,7 +204,9 @@ namespace ompl
 
                 //STa
                 bool 				isGoalTree;
+                bool                isStateShared;
                 base::SafetyCost 	stateCost;
+
 
                 boost::unordered_set<size_t> connectionIndex;
 
@@ -210,7 +220,11 @@ namespace ompl
                 ~treeConnection();
 
                 void updateWholeMotionCost(const base::SafeMultiOptimizationObjective* safe_multi_opt);
-                std::vector<base::State*> getPath();
+                std::vector<const base::State*> getPath();
+                std::vector<const base::State*> getStatesToShare();
+
+                /** \brief Return the motion that most degrades the cost of the solution*/
+                void getWorstMotion(const base::SafeMultiOptimizationObjective* safe_multi_opt, Motion*& worstMotion, bool& isStartTree);
 
 
                 Motion* startTreeMotion;
@@ -262,7 +276,7 @@ namespace ompl
             /** \brief Computes the Cost To Go heuristically as the cost to come from start to motion plus
                  the cost to go from motion to goal. If \e shortest is true, the estimated cost to come
                  start-motion is given. Otherwise, this cost to come is the current motion cost. */
-//            base::SafetyCost heuristicCost(const base::State* state, const base::SafetyCost state_cost , const bool shortest = true) const;
+            base::SafetyCost heuristicCost(const base::State* state, const base::SafetyCost state_cost , const bool shortest = true) const;
 //            base::SafetyCost heuristicCost(const Motion *m1, const Motion *m2 , const base::SafetyCost motionCost, const bool shortest = true) const;
 
             enum GrowResult
@@ -293,7 +307,6 @@ namespace ompl
 
             /** \brief Deletes (frees memory) the motion and its children motions. */
             void deleteBranch(Motion *motion);
-
 
 
             /** \brief State sampler */
@@ -332,6 +345,12 @@ namespace ompl
             /** \brief If this value is set to true, tree pruning will be enabled. */
             bool                                           prune_;
 
+            /** \brief If this value is set to true, local bias will be enabled. */
+            bool                                           localBias_;
+
+            /** \brief Number of attempt to get a local biased state that could improve the current solution before giving up. */
+            size_t                                         localBiasAttempt_;
+
             /** \brief The tree is only pruned is the percentage of states to prune is above this threshold (between 0 and 1). */
             double                                         pruneStatesThreshold_;
 
@@ -343,6 +362,7 @@ namespace ompl
             unsigned int                                   iterations_;
             /** \brief Best cost found so far by algorithm */
             base::SafetyCost                                   bestCost_;
+            const base::SafetyCost*                                   bestSharedCost_;
             size_t 												bestIndex_;
 
             //STa

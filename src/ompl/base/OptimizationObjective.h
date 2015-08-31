@@ -149,6 +149,12 @@ namespace ompl
             /** \brief Print information about this optimization objective */
             virtual void print(std::ostream &out) const;
 
+            //STa
+            bool isMinMaxObjective() const
+            {
+                return isMinMaxObjective_;
+            }
+
         protected:
             /** \brief The space information for this objective */
             SpaceInformationPtr si_;
@@ -161,6 +167,9 @@ namespace ompl
 
             /** \brief The function used for returning admissible estimates on the optimal cost of the path between a given state and goal */
             CostToGoHeuristic   costToGoFn_;
+
+            //STa
+            bool                isMinMaxObjective_;
         };
 
         /**

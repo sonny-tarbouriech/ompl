@@ -51,7 +51,7 @@ namespace ompl
 
             ManipulabilityObjective(const SpaceInformationPtr &si);
 
-            ManipulabilityObjective(const SpaceInformationPtr &si, double cost);
+            ManipulabilityObjective(const SpaceInformationPtr &si, Cost cost_threshold);
 
             virtual bool isSymmetric() const;
 

@@ -9,23 +9,17 @@
 
 ompl::base::JointLimitsObjective::
 JointLimitsObjective(const SpaceInformationPtr &si) :
-	OptimizationObjective(si)
+JointLimitsObjective(si, identityCost())
 {
-	this->setCostThreshold(identityCost());
-
-	//TODO : return error if si_ has not a SafeStateValidityChecker
-	ssvc_ = dynamic_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
-
-	ssvc_->getJointLimits(q_min_,q_max_);
-
 }
 
 
 ompl::base::JointLimitsObjective::
-JointLimitsObjective(const SpaceInformationPtr &si, double cost) :
+JointLimitsObjective(const SpaceInformationPtr &si, Cost cost_threshold) :
 OptimizationObjective(si)
 {
-	this->setCostThreshold(Cost(cost));
+    isMinMaxObjective_ = true;
+	this->setCostThreshold(cost_threshold);
 
 	//TODO : return error if si_ has not a SafeStateValidityChecker
 	ssvc_ = dynamic_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());

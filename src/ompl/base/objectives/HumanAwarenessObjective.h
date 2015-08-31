@@ -15,7 +15,7 @@ namespace ompl
 
         	HumanAwarenessObjective(const SpaceInformationPtr &si);
 
-        	HumanAwarenessObjective(const SpaceInformationPtr &si, double cost);
+        	HumanAwarenessObjective(const SpaceInformationPtr &si, Cost cost_threshold);
 
             virtual bool isSymmetric() const;
 
