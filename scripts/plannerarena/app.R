@@ -10,6 +10,10 @@ defaultDatabase <- "www/benchmark.db"
 
 noDatabaseText <- "No database loaded yet. Upload one by clicking on “Change database”."
 
+notReadyText <- "The benchmarking results are not available yet, check back later."
+
+sessionsFolder = "/tmp/omplweb_sessions"
+
 disable <- function(x) {
   if (inherits(x, 'shiny.tag')) {
     if (x$name %in% c('input', 'select', 'label'))
