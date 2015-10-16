@@ -96,12 +96,12 @@ ompl::base::Cost ompl::base::SafetyObjective::stateCost(const State *s, double& 
 
 bool ompl::base::SafetyObjective::isCostBetterThan(Cost c1, Cost c2) const
 {
-    return c1.value() > c2.value() + magic::BETTER_PATH_COST_MARGIN;
+    return c1.value() > c2.value();
 }
 
 bool ompl::base::SafetyObjective::isCostBetterThan(Cost c1, double factor1, Cost c2, double factor2) const
 {
-	return c1.value() * factor1 > c2.value() * factor2 + magic::BETTER_PATH_COST_MARGIN;
+	return (c1.value() * factor1) > (c2.value() * factor2);
 }
 
 ompl::base::Cost ompl::base::SafetyObjective::motionCost(const State *s1, const State *s2) const
@@ -177,12 +177,13 @@ ompl::base::Cost ompl::base::SafetyObjective::motionCost(const State *s1, const 
 //	double min_obstacle_dist_dynamic_1 = smv_->minObstacleDistMotionIndividualObjects(s1,s2,travel_dist_limit_, fast_dist_, object_danger_factor);
 //	if (min_obstacle_dist_dynamic_1 < 0)
 //		min_obstacle_dist_dynamic_1 =0;
-//	ompl::time::duration dyn1 = ompl::time::now() - init;
+////	ompl::time::duration dyn1 = ompl::time::now() - init;
 //
-//	double min_obstacle_dist_discrete_1 = smv_->minObstacleDistMotionDiscrete(s1,s2,1,false);
+//	double min_obstacle_dist_discrete_1 = smv_->minObstacleDistMotionDiscrete(s1,s2,1,true);
+////	double min_obstacle_dist_discrete_1 = motionCostInterpolation(s1,s2).value();
 //	if (min_obstacle_dist_discrete_1 < 0)
 //		min_obstacle_dist_discrete_1 =0;
-//	ompl::time::duration dis1 = ompl::time::now() - init - dyn1 ;
+////	ompl::time::duration dis1 = ompl::time::now() - init - dyn1 ;
 //
 ////	output_file << ompl::time::seconds(dyn1) << "  " << ompl::time::seconds(dyn2)<< "  " << ompl::time::seconds(dis1)<< "  " << ompl::time::seconds(dis2) << "\n";
 //	if (min_obstacle_dist_dynamic_1 > min_obstacle_dist_discrete_1)

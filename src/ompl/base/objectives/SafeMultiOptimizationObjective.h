@@ -14,6 +14,7 @@ namespace ompl
     	{
     	public:
     		SafeMultiOptimizationObjective(const SpaceInformationPtr &si);
+    		SafeMultiOptimizationObjective(const SpaceInformationPtr &si, bool minMaxObjectiveImprovement);
 
     		SafetyCost safeStateCost(const State *s) const;
     		SafetyCost safeCostToCome(const State *s, SafetyCost safe_state_cost) const;
@@ -21,6 +22,7 @@ namespace ompl
     		SafetyCost safeIdentityCost() const;
     		SafetyCost safeInfiniteCost() const;
 
+    		bool isCostDefined(SafetyCost c) const;
     		bool isSafetySatisfied(SafetyCost c) const;
 
 
@@ -97,6 +99,8 @@ namespace ompl
              int joint_obj_index_;
              int manipulability_obj_index_;
              int awareness_obj_index_;
+
+             bool minMaxObjectiveImprovement_;
 
         };
     }

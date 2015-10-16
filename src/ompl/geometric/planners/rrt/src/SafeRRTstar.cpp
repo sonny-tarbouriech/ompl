@@ -133,7 +133,7 @@ void ompl::geometric::SafeRRTstar::getOptimalSafetyObjective()
 	ompl::base::OptimizationObjectivePtr jointLimitsObj(new ompl::base::JointLimitsObjective(si_));
 	ompl::base::OptimizationObjectivePtr manipulabilityObj(new ompl::base::ManipulabilityObjective(si_));
 	safe_multi_opt_->addObjective(lengthObj, 1, "length");
-	safe_multi_opt_->addObjective(safetyObj, 10, "safety");
+//	safe_multi_opt_->addObjective(safetyObj, 10, "safety");
 //	safe_multi_opt_->addObjective(jointLimitsObj, 0.1, "joint");
 //	safe_multi_opt_->addObjective(manipulabilityObj, 0.1, "manipulability");
 	safe_multi_opt_->NormalizeWeight();
@@ -559,6 +559,7 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 					updatedSolution = true;
 
 //					//STa temp
+					std::cout << "bestCost_ = " << bestCost_ << "\n";
 //					ompl::time::duration dur = ompl::time::now() - init;
 //					output_file <<  bestCost_ << ompl::time::seconds(dur) << "\n";
 

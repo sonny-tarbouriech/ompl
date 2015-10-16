@@ -526,9 +526,13 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 //	//STa temp
 //	std::string homepath = getenv("HOME");
 //	std::ofstream output_file_1((homepath + "/nb_segment_eval_safety_obj_dist.txt").c_str(), std::ios::out | std::ios::app);
+//	output_file_1 << "state 1 : \n";
+//	si_->printState(s1, output_file_1);
+//    output_file_1 << "state 2 : \n";
+//    si_->printState(s2, output_file_1);
 //	output_file_1 << "min dist fcl = " << minObstacleDistMotionDiscrete(s1,s2, 1, fast_dist) << "\n";
-//	output_file_1 << "min dist fcl factor 2 = " << minObstacleDistMotionDiscrete(s1,s2, 2) << "\n";
-//	output_file_1 << "nb interpolation = " << si_->getStateSpace()->validSegmentCount(s1, s2) << "\n";
+//	output_file_1 << "nb objects = " << ssvc_->getNbObjects() << "\n";
+////	output_file_1 << "nb interpolation = " << si_->getStateSpace()->validSegmentCount(s1, s2) << "\n";
 //	size_t nb_segment_eval = 0;
 
 	std::priority_queue<SubSegment> ss_queue;
@@ -537,7 +541,20 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 	std::vector<double> dist_travel;
 
 	ssvc_->computeInitialDistDataObstacle(s1, s2, dist_s1_obs, dist_s2_obs, fast_dist);
+	//STa temp
 	ssvc_->computeInitialDistDataTravelModulation(s1, s2, dist_travel);
+//	ssvc_->computeInitialDistDataTravel(s1, s2, dist_travel);
+
+	if (dist_travel[dist_travel.size() - 1] == 0)
+	{
+        //STa temp
+        std::cout << "minObstacleDistMotionIndividualObjects : \n";
+        si_->getStateSpace()->printState(s1, std::cout);
+        si_->getStateSpace()->printState(s2, std::cout);
+
+
+	    throw Exception("minObstacleDistMotionIndividualObjects : The two states defining the motion are the same");
+	}
 
 	std::vector<double> obj_danger_factor = ssvc_->getObjectDangerFactors();
 
@@ -566,6 +583,17 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 			ss.dist_s2_obs_ = dist_s2_obs[i][j];
 			ss.non_covered_length_ = dist_travel[i] - (dist_s1_obs[i][j] + dist_s2_obs[i][j]);
 			ss_queue.push(ss);
+
+//	        //STa temp
+//	        output_file_1 << "ss.dist_s1_obs_ = " << ss.dist_s1_obs_ << "\n"
+//	                << "ss.dist_s2_obs_ = " << ss.dist_s2_obs_ << "\n"
+//	                << "ss.dist_travel = " << dist_travel[ss.link_index_]*(ss.t_s2_ - ss.t_s1_) << "\n"
+//	                << "ss.link_index_ = " << ss.link_index_ << "\n"
+//	                << "ss.non_covered_length_ = " << ss.non_covered_length_ << "\n"
+//	                << "ss.object_index_ = " << ss.object_index_ << "\n"
+//	                << "ss.t_s1_ = " << ss.t_s1_ << "\n"
+//	                << "ss.t_s2_ = " << ss.t_s2_ << "\n \n";
+
 		}
 
 	}
@@ -588,7 +616,6 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 //				<< "current_ss.link_index_ = " << current_ss.link_index_ << "\n"
 //				<< "current_ss.non_covered_length_ = " << current_ss.non_covered_length_ << "\n"
 //				<< "current_ss.object_index_ = " << current_ss.object_index_ << "\n"
-//				<< "current_ss.self_cc_ = " << current_ss.self_cc_ << "\n"
 //				<< "current_ss.t_s1_ = " << current_ss.t_s1_ << "\n"
 //				<< "current_ss.t_s2_ = " << current_ss.t_s2_ << "\n"
 //				<< "t = " << t << "\n"
@@ -625,6 +652,16 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 		ss1.non_covered_length_ = dist_travel[ss1.link_index_]*(ss1.t_s2_ - ss1.t_s1_) - (ss1.dist_s1_obs_ + ss1.dist_s2_obs_);
 		ss_queue.push(ss1);
 
+//		//STa temp
+//		output_file_1 << "ss1.dist_s1_obs_ = " << ss1.dist_s1_obs_ << "\n"
+//		        << "ss1.dist_s2_obs_ = " << ss1.dist_s2_obs_ << "\n"
+//		        << "ss1.dist_travel = " << dist_travel[ss1.link_index_]*(ss1.t_s2_ - ss1.t_s1_) << "\n"
+//		        << "ss1.link_index_ = " << ss1.link_index_ << "\n"
+//		        << "ss1.non_covered_length_ = " << ss1.non_covered_length_ << "\n"
+//		        << "ss1.object_index_ = " << ss1.object_index_ << "\n"
+//		        << "ss1.t_s1_ = " << ss1.t_s1_ << "\n"
+//		        << "ss1.t_s2_ = " << ss1.t_s2_ << "\n \n";
+
 		ss2.t_s1_ = t_abs;
 		ss2.t_s2_ = current_ss.t_s2_;
 		ss2.link_index_ = current_ss.link_index_;
@@ -634,6 +671,16 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 		ss2.dist_s2_obs_ = current_ss.dist_s2_obs_;
 		ss2.non_covered_length_ = dist_travel[ss2.link_index_]*(ss2.t_s2_ - ss2.t_s1_) - (ss2.dist_s1_obs_ + ss2.dist_s2_obs_);
 		ss_queue.push(ss2);
+
+//        //STa temp
+//        output_file_1 << "ss2.dist_s1_obs_ = " << ss2.dist_s1_obs_ << "\n"
+//                << "ss2.dist_s2_obs_ = " << ss2.dist_s2_obs_ << "\n"
+//                << "ss2.dist_travel = " << dist_travel[ss2.link_index_]*(ss2.t_s2_ - ss2.t_s1_) << "\n"
+//                << "ss2.link_index_ = " << ss2.link_index_ << "\n"
+//                << "ss2.non_covered_length_ = " << ss2.non_covered_length_ << "\n"
+//                << "ss2.object_index_ = " << ss2.object_index_ << "\n"
+//                << "ss2.t_s1_ = " << ss2.t_s1_ << "\n"
+//                << "ss2.t_s2_ = " << ss2.t_s2_ << "\n \n";
 
 		si_->freeState(s_new);
 		if (!ss_queue.empty())
@@ -653,7 +700,6 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 //			<< "ss_queue.link_index_ = " << ss_queue.top().link_index_ << "\n"
 //			<< "ss_queue.non_covered_length_ = " << ss_queue.top().non_covered_length_ << "\n"
 //			<< "ss_queue.object_index_ = " << ss_queue.top().object_index_ << "\n"
-//			<< "ss_queue.self_cc_ = " << ss_queue.top().self_cc_ << "\n"
 //			<< "ss_queue.t_s1_ = " << ss_queue.top().t_s1_ << "\n"
 //			<< "ss_queue.t_s2_ = " << ss_queue.top().t_s2_ << "\n \n";
 
@@ -666,8 +712,14 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 
 	object_danger_factor = ss_queue.top().obj_danger_factor_;
 
-	return (ss_queue.top().non_covered_length_ >= 0 ? -1 : -ss_queue.top().non_covered_length_/2);
-
+	if (ss_queue.top().non_covered_length_ < 0)
+	{
+	    double min_dist = -ss_queue.top().non_covered_length_/2;
+	    double min_obs = std::min(ss_queue.top().dist_s1_obs_, ss_queue.top().dist_s2_obs_);
+	    return std::min(min_obs, min_dist);
+	}
+	else
+	    return -1;
 
 }
 

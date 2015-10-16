@@ -56,8 +56,9 @@ ompl::geometric::SafeCForest::SafeCForest(const base::SpaceInformationPtr &si) :
 
 	prune_ = false;
 
-//	numThreads_ = std::max(boost::thread::hardware_concurrency(), 2u);
-	numThreads_ = 2;
+	numThreads_ = std::max(boost::thread::hardware_concurrency(), 2u);
+	//STa temp
+	//	numThreads_ = 2;
 
 	Planner::declareParam<bool>("prune", this, &SafeCForest::setPrune, &SafeCForest::getPrune, "0,1");
 	Planner::declareParam<unsigned int>("num_threads", this, &SafeCForest::setNumThreads, &SafeCForest::getNumThreads, "0:64");
@@ -166,15 +167,30 @@ void ompl::geometric::SafeCForest::setup()
 
 	        //STa
 	        if (planners_[i]->getName().compare("SafeBiRRTstar") == 0)
+	        {
 	                static_cast<SafeBiRRTstar*>(planners_[i].get())->setBestSharedCost(&bestCost_);
+
+	                //STa temp
+	                static_cast<SafeBiRRTstar*>(planners_[i].get())->num_thread_ = i;
+	        }
 		}
 		//STa
-		getOptimalSafetyObjective();
-		pdef_->setOptimizationObjective(opt_);
-		bestCost_ = safe_multi_opt_->safeInfiniteCost();
+		if (planners_[0]->isSetup())
+		{
+		    opt_ = planners_[0]->getProblemDefinition()->getOptimizationObjective();
+		    safe_multi_opt_ = static_cast<ompl::base::SafeMultiOptimizationObjective*>(opt_.get());
 
-		// This call is needed to make sure the ParamSet is up to date after changes induced by the planner setup calls above, via the state space wrappers for SafeCForest.
-		si_->setup();
+	        pdef_->setOptimizationObjective(opt_);
+
+	        // This call is needed to make sure the ParamSet is up to date after changes induced by the planner setup calls above, via the state space wrappers for SafeCForest.
+	        si_->setup();
+		}
+	    else
+	    {
+	        OMPL_INFORM("%s: First planner instance is not setup, deferring setup completion...", getName().c_str());
+	        setup_ = false;
+	    }
+
 	}
 	else
 	{
@@ -183,23 +199,6 @@ void ompl::geometric::SafeCForest::setup()
 	}
 }
 
-void ompl::geometric::SafeCForest::getOptimalSafetyObjective()
-{
-
-	safe_multi_opt_ = new ompl::base::SafeMultiOptimizationObjective(si_);
-	ompl::base::OptimizationObjectivePtr lengthObj(new ompl::base::SafePathLengthOptimizationObjective(si_));
-	ompl::base::OptimizationObjectivePtr safetyObj(new ompl::base::SafetyObjective(si_));
-	ompl::base::OptimizationObjectivePtr jointLimitsObj(new ompl::base::JointLimitsObjective(si_));
-	ompl::base::OptimizationObjectivePtr manipulabilityObj(new ompl::base::ManipulabilityObjective(si_));
-	safe_multi_opt_->addObjective(lengthObj, 0.1, "length");
-	safe_multi_opt_->addObjective(safetyObj, 0.9, "safety");
-//	safe_multi_opt_->addObjective(jointLimitsObj, 0.1, "joint");
-//	safe_multi_opt_->addObjective(manipulabilityObj, 0.1, "manipulability");
-	safe_multi_opt_->NormalizeWeight();
-
-	//Safe RRT*
-	opt_ = ompl::base::OptimizationObjectivePtr(safe_multi_opt_);
-}
 
 ompl::base::PlannerStatus ompl::geometric::SafeCForest::solve(const base::PlannerTerminationCondition &ptc)
 {
@@ -275,10 +274,17 @@ void ompl::geometric::SafeCForest::newSolutionFound(const base::Planner *planner
 		statesToShare.reserve(states.size());
 		for (std::vector<const base::State *>::const_iterator st = states.begin(); st != states.end(); ++st)
 		{
-		    //STa : When used with SafeBiRRTstar, no need to filter as the planner already did it.
+
+//		    //STa temp
+//		    std::cout << "SafeCForest::newSolutionFound : \n";
+//            std::cout << "planner thread " << static_cast<const SafeBiRRTstar*>(planner)->num_thread_ <<" \n";
+//		    si_->getStateSpace()->printState(*st, std::cout);
+
+
+//		    //STa : When used with SafeBiRRTstar, no need to filter as the planner already did it.
 //			if (statesShared_.find(*st) == statesShared_.end())
 //			{
-//				statesShared_.insert(*st);
+				statesShared_.insert(*st);
 				statesToShare.push_back(*st);
 				++numStatesShared_;
 //			}
@@ -294,7 +300,7 @@ void ompl::geometric::SafeCForest::newSolutionFound(const base::Planner *planner
 		const base::SafeCForestStateSpaceWrapper *space = static_cast<const base::SafeCForestStateSpaceWrapper*>(sampler->getStateSpace());
 		const base::Planner *cfplanner = space->getPlanner();
 		if (cfplanner != planner)
-			sampler->setStatesToSample(statesToShare);
+		    sampler->setStatesToSample(statesToShare);
 	}
 
 //	std::cout << "Exit SafeCForest::newSolutionFound \n \n";

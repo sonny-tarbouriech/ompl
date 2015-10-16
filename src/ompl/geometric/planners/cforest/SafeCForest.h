@@ -134,9 +134,6 @@ namespace ompl
             /** \brief Get number of states actually shared by the algorithm. */
             std::string getNumStatesShared() const;
 
-            //STa
-            void getOptimalSafetyObjective();
-
         private:
 
             /** \brief Helper function to add a planner instance. */

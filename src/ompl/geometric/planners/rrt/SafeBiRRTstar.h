@@ -53,6 +53,8 @@
 #include <vector>
 #include <utility>
 
+//STa temp
+#include <fstream>
 
 namespace ompl
 {
@@ -140,6 +142,9 @@ namespace ompl
                 bestSharedCost_ = bestSharedCost;
             }
 
+            //STa temp
+            size_t num_thread_;
+
 
         protected:
 
@@ -156,6 +161,7 @@ namespace ompl
                     root(NULL),
                     isGoalTree(false),
                     isStateShared(false),
+                    connectionIndex(0),
                     otherTreeConnectionFailure(0)
 
 
@@ -177,6 +183,23 @@ namespace ompl
                         return true;
                     else
                         return parent->isParent(other);
+                }
+
+                bool hasCommonParentState(Motion* other)
+                {
+                    Motion* currentMotion = other->parent;
+                    if (connectionIndex !=0)
+                        while(currentMotion)
+                        {
+                            if (currentMotion->connectionIndex == connectionIndex)
+                                return true;
+                            currentMotion = currentMotion->parent;
+                        }
+
+                    if (parent)
+                        return parent->hasCommonParentState(other);
+                    else return false;
+
                 }
 
                 base::SafetyCost heuristicCost(const base::SafeMultiOptimizationObjective* safe_multi_opt,  const bool shortest = true) const;
@@ -208,7 +231,7 @@ namespace ompl
                 base::SafetyCost 	stateCost;
 
 
-                boost::unordered_set<size_t> connectionIndex;
+                size_t          connectionIndex;
 
                 size_t 			otherTreeConnectionFailure;
             };
@@ -216,15 +239,22 @@ namespace ompl
             class treeConnection
             {
             public:
-                treeConnection(){};
+                treeConnection():
+                    startTreeMotion(NULL),
+                    goalTreeMotion(NULL),
+                    index(0)
+                {};
                 ~treeConnection();
 
                 void updateWholeMotionCost(const base::SafeMultiOptimizationObjective* safe_multi_opt);
                 std::vector<const base::State*> getPath();
-                std::vector<const base::State*> getStatesToShare();
+                std::vector<const base::State*> getStatesToShare(boost::unordered_map<size_t, treeConnection*>& connection);
+                std::vector<base::SafetyCost> getIncCosts();
 
                 /** \brief Return the motion that most degrades the cost of the solution*/
                 void getWorstMotion(const base::SafeMultiOptimizationObjective* safe_multi_opt, Motion*& worstMotion, bool& isStartTree);
+
+                void printMotionIncCost(std::ostream &out = std::cout) const;
 
 
                 Motion* startTreeMotion;
@@ -299,7 +329,7 @@ namespace ompl
 
             /// \brief Attempt to connect \e tree to \e nmotion, which is in
             /// the other tree.  \e xmotion is scratch space and will be overwritten
-            bool connectTrees(Motion* nmotion, TreeData& tree, Motion* xmotion);
+            bool connectTrees(Motion* nmotion, TreeData& tree);
 
             /** \brief Prunes all those states which estimated total cost is higher than pruneTreeCost.
         Returns the number of motions pruned. Depends on the parameter set by setPruneStatesImprovementThreshold() */
@@ -343,16 +373,29 @@ namespace ompl
             std::vector<Motion*>                           goalMotion_;
 
             /** \brief If this value is set to true, tree pruning will be enabled. */
-            bool                                           prune_;
-
-            /** \brief If this value is set to true, local bias will be enabled. */
-            bool                                           localBias_;
-
-            /** \brief Number of attempt to get a local biased state that could improve the current solution before giving up. */
-            size_t                                         localBiasAttempt_;
+            bool                                           pruneEnabled_;
 
             /** \brief The tree is only pruned is the percentage of states to prune is above this threshold (between 0 and 1). */
             double                                         pruneStatesThreshold_;
+
+            /** \brief If this value is set to true, local bias will be enabled. */
+            bool                                           localBiasEnabled_;
+
+            /** \brief Probability to get a locally biased sample */
+            double                                         localBiasRate_;
+
+            /** \brief If this value is set to true, the planner will try to improve start and goal cost for minMax objectives */
+            bool                                           minMaxObjectiveImprovementEnabled_;
+
+            /** \brief If this value is set to true, the fast cost estimation is enabled */
+            bool                                           fastCostEnabled_;
+
+            /** \brief If this value is set to true, the heuristic is used to reject states */
+            bool                                           heuristicRejectionEnabled_;
+
+            /** \brief If this value is set to true, the planner behaves like RRT-Connect */
+            bool                                           anytimeEnabled_;
+
 
             struct PruneScratchSpace { std::vector<Motion*> newTree, toBePruned, candidates; } pruneScratchSpace_;
 
@@ -373,8 +416,6 @@ namespace ompl
             double 									travel_dist_limit_;
 
 
-            double                                         improveSolutionBias_;
-
             boost::unordered_map<size_t, treeConnection*> 			connection_;
             size_t treeConnectionIndex_;
 
@@ -390,6 +431,9 @@ namespace ompl
             /// the two trees.
             double  connectionRange_;
 
+
+            //STa temp
+            std::ofstream output_file_;
 
 
 

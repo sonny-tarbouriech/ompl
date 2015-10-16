@@ -2,7 +2,7 @@
 
 #include "ompl/base/SafetyCost.h"
 
-ompl::base::SafetyCost::SafetyCost() : is_improving_safety(true), is_improving_joint(true), is_improving_manipulability(true), is_improving_awareness(true), collision_world_(false), object_danger_factor_(1.0)
+ompl::base::SafetyCost::SafetyCost() : is_improving_safety(true), is_improving_joint(true), is_improving_manipulability(true), is_improving_awareness(true), is_root_(false), collision_world_(false), object_danger_factor_(1.0)
 {
 	individual_cost_.resize(0);
 }
@@ -20,7 +20,8 @@ std::ostream& ompl::base::operator<<(std::ostream& stream, SafetyCost c)
 
 		stream << c.getIndividualCost(i) << "  ";
 	}
-	stream << "(object_danger_factor_ = " << c.getObjectDangerFactor() << ")";
+	//STa temp
+//	stream << "(object_danger_factor_ = " << c.getObjectDangerFactor() << ")";
 
 
 	return stream;
@@ -80,3 +81,9 @@ bool& ompl::base::SafetyCost::isImprovingAwareness()
 {
 	return is_improving_awareness;
 }
+
+bool& ompl::base::SafetyCost::isRoot()
+{
+    return is_root_;
+}
+

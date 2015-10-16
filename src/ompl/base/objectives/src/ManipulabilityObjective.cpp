@@ -73,7 +73,7 @@ ompl::base::Cost ompl::base::ManipulabilityObjective::stateCost(const State *s) 
 
 bool ompl::base::ManipulabilityObjective::isCostBetterThan(Cost c1, Cost c2) const
 {
-    return c1.value() > c2.value() + magic::BETTER_PATH_COST_MARGIN;
+    return c1.value() > c2.value();
 }
 
 ompl::base::Cost ompl::base::ManipulabilityObjective::motionCost(const State *s1, const State *s2) const
@@ -104,7 +104,7 @@ ompl::base::Cost ompl::base::ManipulabilityObjective::motionCost(const State *s1
 //
 //	return Cost(min_dist);
 
-	Cost worstCost = this->identityCost();
+	Cost worstCost = this->stateCost(s1);
 	int nd = si_->getStateSpace()->validSegmentCount(s1, s2) ;
 	if (nd > 1)
 	{

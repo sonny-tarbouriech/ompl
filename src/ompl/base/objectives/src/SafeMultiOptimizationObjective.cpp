@@ -16,9 +16,26 @@ length_obj_index_(-1),
 safety_obj_index_(-1),
 joint_obj_index_(-1),
 manipulability_obj_index_(-1),
-awareness_obj_index_(-1)
+awareness_obj_index_(-1),
+minMaxObjectiveImprovement_(false)
 {
 	this->setCostThreshold(identityCost());
+}
+
+ompl::base::SafeMultiOptimizationObjective::
+SafeMultiOptimizationObjective(const SpaceInformationPtr &si, bool minMaxObjectiveImprovement) :
+MultiOptimizationObjective(si),
+goal_(NULL),
+start_state_(NULL),
+total_weight(0),
+length_obj_index_(-1),
+safety_obj_index_(-1),
+joint_obj_index_(-1),
+manipulability_obj_index_(-1),
+awareness_obj_index_(-1),
+minMaxObjectiveImprovement_(minMaxObjectiveImprovement)
+{
+    this->setCostThreshold(identityCost());
 }
 
 ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeStateCost(const State *s) const
@@ -126,6 +143,15 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeInfiniteC
 	return c;
 }
 
+bool ompl::base::SafeMultiOptimizationObjective::isCostDefined(SafetyCost c) const
+{
+    if (c.getIndividualCostSize() != components_.size())
+        return false;
+
+    //STa : If any individual cost is not infinite, then the global cost is defined
+    return (c.getIndividualCost(0).value() != components_[0].objective->infiniteCost().value());
+}
+
 bool ompl::base::SafeMultiOptimizationObjective::isSafetySatisfied(SafetyCost c) const
 {
 	if (c.getIndividualCostSize() != components_.size())
@@ -145,31 +171,22 @@ bool ompl::base::SafeMultiOptimizationObjective::isSafetySatisfied(SafetyCost c)
 
 bool ompl::base::SafeMultiOptimizationObjective::isCostBetterThan(Cost c1, Cost c2) const
 {
-	return c1.value() > c2.value() + magic::BETTER_PATH_COST_MARGIN;
+	return c1.value() > c2.value();
 }
 
 bool ompl::base::SafeMultiOptimizationObjective::isSafetyCostBetterThan(SafetyCost c1, SafetyCost c2) const
 {
 	//std::cou << "enter isSafetyCostBetterThan \n";
 
-    if (c1.getIndividualCostSize() != components_.size() || c2.getIndividualCostSize() != components_.size())
-    {
-        OMPL_ERROR("SafeMultiOptimizationObjective isSafetyCostBetterThan: Invalid individual cost size. c1 is of size %u, c2 is of size %u and the valid size is %u", c1.getIndividualCostSize(), c2.getIndividualCostSize(), components_.size());
-    }
+//    if (c1.getIndividualCostSize() != components_.size() || c2.getIndividualCostSize() != components_.size())
+//    {
+//        OMPL_ERROR("SafeMultiOptimizationObjective isSafetyCostBetterThan: Invalid individual cost size. c1 is of size %u, c2 is of size %u and the valid size is %u", c1.getIndividualCostSize(), c2.getIndividualCostSize(), components_.size());
+//    }
 
-//	if (c1.getIndividualCostSize() != components_.size())
-//	{
-//		//std::cou << "exit isSafetyCostBetterThan \n";
-//
-//		return false;
-//	}
-//	else if (c2.getIndividualCostSize() != components_.size())
-//	{
-//
-//		//std::cou << "exit isSafetyCostBetterThan \n";
-//
-//		return true;
-//	}
+	if (c1.getCollisionWorld())
+		return false;
+	else if (c2.getCollisionWorld())
+		return true;
 
 	double improv1 =0, improv2 =0;
 	for (size_t i=0; i< components_.size(); ++i)
@@ -193,7 +210,7 @@ bool ompl::base::SafeMultiOptimizationObjective::isSafetyCostBetterThan(SafetyCo
 
 	//std::cou << "exit isSafetyCostBetterThan \n";
 
-	return improv1  > improv2  + magic::BETTER_PATH_COST_MARGIN;
+	return improv1  > improv2;
 }
 
 bool ompl::base::SafeMultiOptimizationObjective::isMinMaxSafetyCostBetterThan(SafetyCost c1, SafetyCost c2) const
@@ -230,7 +247,7 @@ bool ompl::base::SafeMultiOptimizationObjective::isMinMaxSafetyCostBetterThan(Sa
 
     //std::cou << "exit isSafetyCostBetterThan \n";
 
-    return improv1  > improv2  + magic::BETTER_PATH_COST_MARGIN;
+    return improv1  > improv2;
 }
 
 double ompl::base::SafeMultiOptimizationObjective::safetyCostImprovement(SafetyCost c1, SafetyCost c2) const
@@ -301,6 +318,37 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeMotionCos
 
 	return c;
 }
+
+//STa test
+
+ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeMotionCostTEST(const State *s1, const State *s2) const
+{
+    SafetyCost c;
+    for (size_t i=0; i< components_.size(); ++i)
+    {
+        if (int(i) == safety_obj_index_)
+        {
+            SafetyObjective* so = static_cast<SafetyObjective*>(components_[i].objective.get());
+            Cost individual_cost(so->motionCostInterpolation(s1,s2));
+            if (individual_cost.value() < 0)
+                c.addCost(Cost(0)); //Collision with world
+            else
+            {
+                c.addCost(individual_cost);
+            }
+        }
+
+        else
+        {
+            Cost individual_cost(components_[i].objective->motionCost(s1,s2));
+            c.addCost(individual_cost);
+        }
+
+    }
+
+    return c;
+}
+
 
 ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeFastMotionCost(const State *s1, const State *s2, SafetyCost c1, SafetyCost c2) const
 {
@@ -376,62 +424,6 @@ ompl::base::Cost ompl::base::SafeMultiOptimizationObjective::safeMotionMechanica
 }
 
 
-//STa test
-
-ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeMotionCostTEST(const State *s1, const State *s2) const
-{
-	SafetyCost c;
-	for (size_t i=0; i< components_.size(); ++i)
-	{
-		if (int(i) == safety_obj_index_)
-		{
-			SafetyObjective* so = static_cast<SafetyObjective*>(components_[i].objective.get());
-			Cost individual_cost(so->motionCostInterpolation(s1,s2));
-			if (individual_cost.value() < 0)
-				c.addCost(Cost(0)); //Collision with world
-			else
-			{
-				c.addCost(individual_cost);
-			}
-		}
-
-		else
-		{
-			Cost individual_cost(components_[i].objective->motionCost(s1,s2));
-			c.addCost(individual_cost);
-		}
-
-	}
-
-	return c;
-}
-
-
-
-//ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeMotionCost(const State *s1, const State *s2, double min_obstacle_dist) const
-//{
-//	SafetyCost c;
-//	Cost individual_cost;
-//	for (size_t i=0; i< components_.size(); ++i)
-//	{
-//		if (int(i) == safety_obj_index_ )
-//		{
-//			individual_cost = Cost(min_obstacle_dist);
-//			if (individual_cost.value() < 0)
-//			{
-//				c.setCollisionWorld(true);
-//				break;
-//			}
-//		}
-//		else
-//			individual_cost = components_[i].objective->motionCost(s1,s2);
-//
-//		c.addCost(individual_cost);
-//	}
-//	return c;
-//}
-
-
 ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeMotionCostSymmetric(const State *s1, const State *s2, SafetyCost symCost) const
 {
 	SafetyCost c;
@@ -489,11 +481,19 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
 	{
 		if (int(i) == safety_obj_index_)
 		{
+		    //STa temp
+		    if (c1.isImprovingSafety())
+		    {
+		        std::cout << "c1.getIndividualCost(i) = " << c1.getIndividualCost(i) << "\n";
+                std::cout << "c2.getIndividualCost(i) = " << c2.getIndividualCost(i) << "\n \n";
+
+		    }
+
 			SafetyObjective* so = static_cast<SafetyObjective*>(components_[i].objective.get());
-			if (c1.isImprovingSafety() && so->isCostBetterThan(c2.getIndividualCost(i), c2.getObjectDangerFactor(), c1.getIndividualCost(i), c1.getObjectDangerFactor()))
+			if (minMaxObjectiveImprovement_ && !c1.isRoot() && c1.isImprovingSafety() && !so->isCostBetterThan(c1.getIndividualCost(i), c1.getObjectDangerFactor(), c2.getIndividualCost(i), c2.getObjectDangerFactor()))
 			{
-//				//STa temp
-//				std::cout << "safety improved \n";
+				//STa temp
+				std::cout << "safety improved \n";
 
 				individual_cost = c2.getIndividualCost(i);
 				c.setObjectDangerFactor(c2.getObjectDangerFactor());
@@ -502,8 +502,9 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
 			{
 				double object_danger_factor;
 				individual_cost = so->combineCosts(c1.getIndividualCost(i), c1.getObjectDangerFactor(), c2.getIndividualCost(i), c2.getObjectDangerFactor(), object_danger_factor);
-				c.isImprovingSafety() = false;
 				c.setObjectDangerFactor(object_danger_factor);
+				if (!c1.isRoot())
+				    c.isImprovingSafety() = false;
 			}
 
 			if (individual_cost.value() <= 0)
@@ -514,10 +515,10 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
 		}
 		else if (int(i) == joint_obj_index_)
 		{
-			if (c1.isImprovingJoint() && (c2.getIndividualCost(i).value() > c1.getIndividualCost(i).value()))
+			if (minMaxObjectiveImprovement_ && !c1.isRoot() && c1.isImprovingJoint() && !components_[i].objective->isCostBetterThan(c1.getIndividualCost(i), c2.getIndividualCost(i)))
 			{
-//				//STa temp
-//				std::cout << "joint limits improved \n";
+				//STa temp
+				std::cout << "joint limits improved \n";
 
 
 				individual_cost = c2.getIndividualCost(i);
@@ -525,15 +526,16 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
 			else
 			{
 				individual_cost = Cost(components_[i].objective->combineCosts(c1.getIndividualCost(i), c2.getIndividualCost(i)));
-				c.isImprovingJoint() = false;
+				if (!c1.isRoot())
+				    c.isImprovingJoint() = false;
 			}
 		}
 		else if (int(i) == manipulability_obj_index_)
 		{
-			if (c1.isImprovingManipulability() && (c2.getIndividualCost(i).value() > c1.getIndividualCost(i).value()))
+			if (minMaxObjectiveImprovement_ && !c1.isRoot() &&  c1.isImprovingManipulability() && !components_[i].objective->isCostBetterThan(c1.getIndividualCost(i), c2.getIndividualCost(i)))
 			{
-//				//STa temp
-//				std::cout << "manipulability improved \n";
+				//STa temp
+				std::cout << "manipulability improved \n";
 
 
 				individual_cost = c2.getIndividualCost(i);
@@ -541,12 +543,13 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
 			else
 			{
 				individual_cost = Cost(components_[i].objective->combineCosts(c1.getIndividualCost(i), c2.getIndividualCost(i)));
-				c.isImprovingManipulability() = false;
+				if (!c1.isRoot())
+				    c.isImprovingManipulability() = false;
 			}
 		}
 		else if (int(i) == awareness_obj_index_)
 		{
-			if (c1.isImprovingAwareness() && (c2.getIndividualCost(i).value() > c1.getIndividualCost(i).value()))
+			if (minMaxObjectiveImprovement_ && !c1.isRoot() && c1.isImprovingAwareness() && !components_[i].objective->isCostBetterThan(c1.getIndividualCost(i), c2.getIndividualCost(i)))
 			{
 //				//STa temp
 //				std::cout << "awareness improved \n";
@@ -557,7 +560,8 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
 			else
 			{
 				individual_cost = Cost(components_[i].objective->combineCosts(c1.getIndividualCost(i), c2.getIndividualCost(i)));
-				c.isImprovingAwareness() = false;
+				if (!c1.isRoot())
+				    c.isImprovingAwareness() = false;
 			}
 		}
 

@@ -55,7 +55,7 @@ ompl::base::Cost ompl::base::JointLimitsObjective::stateCost(const State *s) con
 
 bool ompl::base::JointLimitsObjective::isCostBetterThan(Cost c1, Cost c2) const
 {
-    return c1.value() > c2.value() + magic::BETTER_PATH_COST_MARGIN;
+    return c1.value() > c2.value();
 }
 
 ompl::base::Cost ompl::base::JointLimitsObjective::motionCost(const State *s1, const State *s2) const

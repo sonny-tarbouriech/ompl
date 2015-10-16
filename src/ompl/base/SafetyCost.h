@@ -28,15 +28,11 @@ public:
 	void setObjectDangerFactor(double value);
 	double getObjectDangerFactor();
 
-
-
-
-
-
 	bool& isImprovingSafety();
 	bool& isImprovingJoint();
 	bool& isImprovingManipulability();
 	bool& isImprovingAwareness();
+	bool& isRoot();
 
 
 	SafetyCost& operator=(SafetyCost other)
@@ -65,7 +61,9 @@ private:
 	bool is_improving_joint;
 	bool is_improving_manipulability;
 	bool is_improving_awareness;
+	bool is_root_;
 	bool collision_world_;
+
 
 	double object_danger_factor_;
 };

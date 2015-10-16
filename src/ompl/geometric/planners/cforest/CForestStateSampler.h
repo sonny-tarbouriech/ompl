@@ -67,6 +67,9 @@ namespace ompl
                 it will call the sampleUniform() method of the specified sampler. */
             virtual void sampleUniform(State *state);
 
+            //STa
+            void sampleUniform(State *state, bool& isKnownSample);
+
             /** \brief It will sample the next state of the vector StatesToSample_. If this is empty,
                 it will call the sampleUniformNear() method of the specified sampler. */
             virtual void sampleUniformNear(State *state, const State *near, const double distance);
