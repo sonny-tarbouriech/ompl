@@ -244,12 +244,18 @@ namespace ompl
                     goalTreeMotion(NULL),
                     index(0)
                 {};
-                ~treeConnection();
+                ~treeConnection()
+                {
+                }
 
                 void updateWholeMotionCost(const base::SafeMultiOptimizationObjective* safe_multi_opt);
                 std::vector<const base::State*> getPath();
                 std::vector<const base::State*> getStatesToShare(boost::unordered_map<size_t, treeConnection*>& connection);
                 std::vector<base::SafetyCost> getIncCosts();
+
+                //STa temp
+                std::vector<const base::State*> getPath(std::vector<bool>& isGoalTree, std::vector<bool>& isStateShared);
+                std::vector<const base::State*> getStatesToShare(boost::unordered_map<size_t, treeConnection*> connection, ompl::base::SpaceInformationPtr  si, std::vector<bool>& isGoalTree, std::vector<bool>& isStateShared);
 
                 /** \brief Return the motion that most degrades the cost of the solution*/
                 void getWorstMotion(const base::SafeMultiOptimizationObjective* safe_multi_opt, Motion*& worstMotion, bool& isStartTree);
@@ -434,6 +440,7 @@ namespace ompl
 
             //STa temp
             std::ofstream output_file_;
+            std::stringstream file_name_;
 
 
 

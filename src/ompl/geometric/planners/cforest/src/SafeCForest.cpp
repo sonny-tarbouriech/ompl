@@ -56,9 +56,9 @@ ompl::geometric::SafeCForest::SafeCForest(const base::SpaceInformationPtr &si) :
 
 	prune_ = false;
 
-	numThreads_ = std::max(boost::thread::hardware_concurrency(), 2u);
+//	numThreads_ = std::max(boost::thread::hardware_concurrency(), 2u);
 	//STa temp
-	//	numThreads_ = 2;
+		numThreads_ = 2;
 
 	Planner::declareParam<bool>("prune", this, &SafeCForest::setPrune, &SafeCForest::getPrune, "0,1");
 	Planner::declareParam<unsigned int>("num_threads", this, &SafeCForest::setNumThreads, &SafeCForest::getNumThreads, "0:64");
