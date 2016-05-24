@@ -89,13 +89,7 @@ namespace ompl
                 boost::thread t(boost::bind(&RunPlanner::runThread, this, planner, memStart + maxMem, time::seconds(maxTime), time::seconds(timeBetweenUpdates)));
 
                 // allow 25% more time than originally specified, in order to detect planner termination
-#if BOOST_VERSION < 105000
-                // For older versions of boost, we have to use this
-                // deprecated form of the timed join
-                if (!t.timed_join(time::seconds(maxTime * 1.25)))
-#else
                 if (!t.try_join_for(boost::chrono::duration<double>(maxTime * 1.25)))
-#endif
                 {
                     status_ = base::PlannerStatus::CRASH;
 
@@ -270,6 +264,11 @@ bool ompl::tools::Benchmark::saveResultsToStream(std::ostream &out) const
 
     out << "OMPL version " << OMPL_VERSION << std::endl;
     out << "Experiment " << (exp_.name.empty() ? "NO_NAME" : exp_.name) << std::endl;
+
+    out << exp_.parameters.size() << " experiment properties" << std::endl;
+    for(std::map<std::string, std::string>::const_iterator it = exp_.parameters.begin(); it != exp_.parameters.end(); ++it)
+        out << it->first << " = " << it->second << std::endl;
+
     out << "Running on " << (exp_.host.empty() ? "UNKNOWN" : exp_.host) << std::endl;
     out << "Starting at " << boost::posix_time::to_iso_extended_string(exp_.startTime) << std::endl;
     out << "<<<|" << std::endl << exp_.setupInfo << "|>>>" << std::endl;
@@ -613,7 +612,7 @@ void ompl::tools::Benchmark::benchmark(const Request &req)
                         gsetup_->getStateSpace()->setValidSegmentCountFactor(factor * 4);
                         run["correct solution strict BOOLEAN"] = boost::lexical_cast<std::string>(gsetup_->getSolutionPath().check());
                         gsetup_->getStateSpace()->setValidSegmentCountFactor(factor);
-                        
+
                         if (req.simplify)
                         {
                             // simplify solution
