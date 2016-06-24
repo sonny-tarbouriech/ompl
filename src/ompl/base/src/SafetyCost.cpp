@@ -2,9 +2,8 @@
 
 #include "ompl/base/SafetyCost.h"
 
-ompl::base::SafetyCost::SafetyCost() : is_improving_safety(true), is_improving_joint(true), is_improving_manipulability(true), is_improving_awareness(true), is_root_(false), collision_world_(false), object_danger_factor_(1.0)
+ompl::base::SafetyCost::SafetyCost() :  is_root_(false), collision_world_(false), object_danger_factor_(1.0)
 {
-	individual_cost_.resize(0);
 }
 
 std::ostream& ompl::base::operator<<(std::ostream& stream, SafetyCost c)
@@ -20,8 +19,7 @@ std::ostream& ompl::base::operator<<(std::ostream& stream, SafetyCost c)
 
 		stream << c.getIndividualCost(i) << "  ";
 	}
-	//STa temp
-//	stream << "(object_danger_factor_ = " << c.getObjectDangerFactor() << ")";
+	stream << c.getObjectDangerFactor();
 
 
 	return stream;
@@ -32,6 +30,21 @@ ompl::base::Cost ompl::base::SafetyCost::getIndividualCost(size_t index) const
 	return individual_cost_[index];
 }
 
+ompl::base::Cost ompl::base::SafetyCost::getIndividualCostImproved(size_t index) const
+{
+    return individual_cost_improved_[index];
+}
+bool ompl::base::SafetyCost::isImprovingCost(size_t index) const
+{
+    return is_improving_cost_[index];
+}
+
+bool ompl::base::SafetyCost::hasImprovedCosts() const
+{
+    return (individual_cost_improved_.size() > 0);
+}
+
+
 size_t ompl::base::SafetyCost::getIndividualCostSize() const
 {
 	return individual_cost_.size();
@@ -40,6 +53,16 @@ size_t ompl::base::SafetyCost::getIndividualCostSize() const
 void ompl::base::SafetyCost::addCost(Cost cost)
 {
 	individual_cost_.push_back(cost);
+}
+
+void ompl::base::SafetyCost::addCostImproved(Cost cost)
+{
+    individual_cost_improved_.push_back(cost);
+}
+
+void ompl::base::SafetyCost::addIsImprovingCost(bool value)
+{
+    is_improving_cost_.push_back(value);
 }
 
 void ompl::base::SafetyCost::setCollisionWorld(bool value)
@@ -62,25 +85,36 @@ double ompl::base::SafetyCost::getObjectDangerFactor()
 	return object_danger_factor_;
 }
 
-
-bool& ompl::base::SafetyCost::isImprovingSafety()
+void ompl::base::SafetyCost::setObjectDangerFactorImproved(double value)
 {
-	return is_improving_safety;
-}
-bool& ompl::base::SafetyCost::isImprovingJoint()
-{
-	return is_improving_joint;
+    object_danger_factor_improved_ = value;
 }
 
-bool& ompl::base::SafetyCost::isImprovingManipulability()
+double ompl::base::SafetyCost::getObjectDangerFactorImproved()
 {
-	return is_improving_manipulability;
+    return object_danger_factor_improved_;
 }
 
-bool& ompl::base::SafetyCost::isImprovingAwareness()
-{
-	return is_improving_awareness;
-}
+
+
+//bool& ompl::base::SafetyCost::isImprovingSafety()
+//{
+//	return is_improving_safety;
+//}
+//bool& ompl::base::SafetyCost::isImprovingJoint()
+//{
+//	return is_improving_joint;
+//}
+//
+//bool& ompl::base::SafetyCost::isImprovingManipulability()
+//{
+//	return is_improving_manipulability;
+//}
+//
+//bool& ompl::base::SafetyCost::isImprovingAwareness()
+//{
+//	return is_improving_awareness;
+//}
 
 bool& ompl::base::SafetyCost::isRoot()
 {

@@ -176,8 +176,6 @@ bool ompl::base::SafeMultiOptimizationObjective::isCostBetterThan(Cost c1, Cost 
 
 bool ompl::base::SafeMultiOptimizationObjective::isSafetyCostBetterThan(SafetyCost c1, SafetyCost c2) const
 {
-	//std::cou << "enter isSafetyCostBetterThan \n";
-
 //    if (c1.getIndividualCostSize() != components_.size() || c2.getIndividualCostSize() != components_.size())
 //    {
 //        OMPL_ERROR("SafeMultiOptimizationObjective isSafetyCostBetterThan: Invalid individual cost size. c1 is of size %u, c2 is of size %u and the valid size is %u", c1.getIndividualCostSize(), c2.getIndividualCostSize(), components_.size());
@@ -188,14 +186,43 @@ bool ompl::base::SafeMultiOptimizationObjective::isSafetyCostBetterThan(SafetyCo
 	else if (c2.getCollisionWorld())
 		return true;
 
-	double improv1 =0, improv2 =0;
+	double improv1 =0, improv2 =0, c1_value=0, c2_value=0, c1_factor=0, c2_factor=0;
 	for (size_t i=0; i< components_.size(); ++i)
 	{
-		double rate = c1.getIndividualCost(i).value() / c2.getIndividualCost(i).value();
-		if (int(i) == safety_obj_index_)
-		{
-			rate *= double(c1.getObjectDangerFactor())/c2.getObjectDangerFactor();
-		}
+	    double rate;
+	    c1_value = c1.getIndividualCost(i).value();
+	    c2_value = c2.getIndividualCost(i).value();
+	    if (int(i) == safety_obj_index_)
+	    {
+	        c1_factor = c1.getObjectDangerFactor();
+	        c2_factor = c2.getObjectDangerFactor();
+	    }
+	    if (minMaxObjectiveImprovement_ && c1.hasImprovedCosts() && c2.hasImprovedCosts())
+	    {
+	        bool isEquivalent;
+	        if (int(i) == safety_obj_index_)
+	            isEquivalent = static_cast<SafetyObjective*>(components_[i].objective.get())->isCostEquivalentTo(c1.getIndividualCost(i), c1_factor, c2.getIndividualCost(i), c2_factor);
+	        else
+	            isEquivalent = components_[i].objective->isCostEquivalentTo(c1.getIndividualCost(i), c2.getIndividualCost(i));
+	        if (isEquivalent)
+	        {
+	        	c1_value = c1.getIndividualCostImproved(i).value();
+	        	if (int(i) == safety_obj_index_)
+	        		c1_factor = c1.getObjectDangerFactorImproved();
+
+	        	c2_value = c2.getIndividualCostImproved(i).value();
+	        	if (int(i) == safety_obj_index_)
+	        		c2_factor = c2.getObjectDangerFactorImproved();
+
+	        }
+	    }
+
+	    rate = c1_value / c2_value;
+	    if (int(i) == safety_obj_index_)
+	    {
+	        rate *= c1_factor/c2_factor;
+	    }
+
 		if (components_[i].objective->infiniteCost().value() == 0)
 		{
 			improv1 += rate * components_[i].weight;
@@ -469,6 +496,7 @@ ompl::base::Cost ompl::base::SafeMultiOptimizationObjective::combineCosts(Cost c
 ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCosts(SafetyCost c1, SafetyCost c2) const
 {
 	SafetyCost c;
+	SafetyObjective* so;
 
 	if (c1.getCollisionWorld() || c2.getCollisionWorld())
 	{
@@ -479,98 +507,98 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
 	Cost individual_cost;
 	for (size_t i=0; i< components_.size(); ++i)
 	{
-		if (int(i) == safety_obj_index_)
-		{
-		    //STa temp
-		    if (c1.isImprovingSafety())
-		    {
-		        std::cout << "c1.getIndividualCost(i) = " << c1.getIndividualCost(i) << "\n";
-                std::cout << "c2.getIndividualCost(i) = " << c2.getIndividualCost(i) << "\n \n";
+	    //STa : If current component corresponds to clearance objective, we need to cast it in order to get the specific function that uses object danger factors
+        if (int(i) == safety_obj_index_)
+        {
+            so = static_cast<SafetyObjective*>(components_[i].objective.get());
+            double object_danger_factor;
+            individual_cost = so->combineCosts(c1.getIndividualCost(i), c1.getObjectDangerFactor(), c2.getIndividualCost(i), c2.getObjectDangerFactor(), object_danger_factor);
+            c.setObjectDangerFactor(object_danger_factor);
 
-		    }
+            //STa : The clearance objective is also used as a collision checker
+            if (individual_cost.value() <= 0)
+            {
+                c.setCollisionWorld(true);
+                break;
+            }
+        }
+        else
+        {
+            individual_cost = components_[i].objective->combineCosts(c1.getIndividualCost(i), c2.getIndividualCost(i));
+        }
+        c.addCost(individual_cost);
 
-			SafetyObjective* so = static_cast<SafetyObjective*>(components_[i].objective.get());
-			if (minMaxObjectiveImprovement_ && !c1.isRoot() && c1.isImprovingSafety() && !so->isCostBetterThan(c1.getIndividualCost(i), c1.getObjectDangerFactor(), c2.getIndividualCost(i), c2.getObjectDangerFactor()))
-			{
-				//STa temp
-				std::cout << "safety improved \n";
+        //STa : If the following feature is enabled, a second cost is computed for min-max objectives. It represents the continuous cost improvement form the root of the tree.
+        //If heuristic combination is being used, the second condition is false and we don't compute this cost
+        if (minMaxObjectiveImprovement_ && (c1.isRoot() || c1.hasImprovedCosts()))
+        {
+            Cost c2_improved;
+            double c2_object_danger_factor;
 
-				individual_cost = c2.getIndividualCost(i);
-				c.setObjectDangerFactor(c2.getObjectDangerFactor());
-			}
-			else
-			{
-				double object_danger_factor;
-				individual_cost = so->combineCosts(c1.getIndividualCost(i), c1.getObjectDangerFactor(), c2.getIndividualCost(i), c2.getObjectDangerFactor(), object_danger_factor);
-				c.setObjectDangerFactor(object_danger_factor);
-				if (!c1.isRoot())
-				    c.isImprovingSafety() = false;
-			}
+            if (so)
+            {
+                if (c1.isRoot())
+                {
+                    c.addCostImproved(individual_cost);
+                    c.addIsImprovingCost(true);
+                    c.setObjectDangerFactorImproved(c.getObjectDangerFactor());
+                }
+                else //c1 has necessarily improved costs
+                {
+                    if (c2.hasImprovedCosts())
+                    {
+                        c2_improved = c2.getIndividualCostImproved(i);
+                        c2_object_danger_factor = c2.getObjectDangerFactorImproved();
+                    }
+                    else
+                    {
+                        c2_improved = c2.getIndividualCost(i);
+                        c2_object_danger_factor = c2.getObjectDangerFactor();
+                    }
+                    if (c1.isImprovingCost(i) && !so->isCostBetterThan(c1.getIndividualCostImproved(i), c1.getObjectDangerFactorImproved(), c2_improved, c2_object_danger_factor))
+                    {
+                        c.addCostImproved(c2_improved);
+                        c.addIsImprovingCost(true);
+                        c.setObjectDangerFactorImproved(c2_object_danger_factor);
 
-			if (individual_cost.value() <= 0)
-			{
-				c.setCollisionWorld(true);
-				break;
-			}
-		}
-		else if (int(i) == joint_obj_index_)
-		{
-			if (minMaxObjectiveImprovement_ && !c1.isRoot() && c1.isImprovingJoint() && !components_[i].objective->isCostBetterThan(c1.getIndividualCost(i), c2.getIndividualCost(i)))
-			{
-				//STa temp
-				std::cout << "joint limits improved \n";
-
-
-				individual_cost = c2.getIndividualCost(i);
-			}
-			else
-			{
-				individual_cost = Cost(components_[i].objective->combineCosts(c1.getIndividualCost(i), c2.getIndividualCost(i)));
-				if (!c1.isRoot())
-				    c.isImprovingJoint() = false;
-			}
-		}
-		else if (int(i) == manipulability_obj_index_)
-		{
-			if (minMaxObjectiveImprovement_ && !c1.isRoot() &&  c1.isImprovingManipulability() && !components_[i].objective->isCostBetterThan(c1.getIndividualCost(i), c2.getIndividualCost(i)))
-			{
-				//STa temp
-				std::cout << "manipulability improved \n";
-
-
-				individual_cost = c2.getIndividualCost(i);
-			}
-			else
-			{
-				individual_cost = Cost(components_[i].objective->combineCosts(c1.getIndividualCost(i), c2.getIndividualCost(i)));
-				if (!c1.isRoot())
-				    c.isImprovingManipulability() = false;
-			}
-		}
-		else if (int(i) == awareness_obj_index_)
-		{
-			if (minMaxObjectiveImprovement_ && !c1.isRoot() && c1.isImprovingAwareness() && !components_[i].objective->isCostBetterThan(c1.getIndividualCost(i), c2.getIndividualCost(i)))
-			{
-//				//STa temp
-//				std::cout << "awareness improved \n";
-
-
-				individual_cost = c2.getIndividualCost(i);
-			}
-			else
-			{
-				individual_cost = Cost(components_[i].objective->combineCosts(c1.getIndividualCost(i), c2.getIndividualCost(i)));
-				if (!c1.isRoot())
-				    c.isImprovingAwareness() = false;
-			}
-		}
-
-		else
-			individual_cost = Cost(components_[i].objective->combineCosts(c1.getIndividualCost(i), c2.getIndividualCost(i)));
-
-		c.addCost(individual_cost);
+                    }
+                    else
+                    {
+                        double object_danger_factor;
+                        c.addCostImproved(so->combineCosts(c1.getIndividualCostImproved(i), c1.getObjectDangerFactorImproved(), c2_improved, c2_object_danger_factor, object_danger_factor));
+                        c.addIsImprovingCost(false);
+                        c.setObjectDangerFactorImproved(object_danger_factor);
+                    }
+                }
+                so = NULL;
+            }
+            else
+            {
+                if (c1.isRoot() || !components_[i].objective->isMinMaxObjective())
+                {
+                    c.addCostImproved(individual_cost);
+                    c.addIsImprovingCost(true);
+                }
+                else //c1 has necessarily improved costs
+                {
+                    if (c2.hasImprovedCosts())
+                        c2_improved = c2.getIndividualCostImproved(i);
+                    else
+                        c2_improved = c2.getIndividualCost(i);
+                    if (c1.isImprovingCost(i) && !components_[i].objective->isCostBetterThan(c1.getIndividualCostImproved(i), c2_improved))
+                    {
+                        c.addCostImproved(c2_improved);
+                        c.addIsImprovingCost(true);
+                    }
+                    else
+                    {
+                        c.addCostImproved(components_[i].objective->combineCosts(c1.getIndividualCostImproved(i),c2_improved));
+                        c.addIsImprovingCost(false);
+                    }
+                }
+            }
+        }
 	}
-	//std::cou << "exit safeCombineCosts \n";
 
 
 	return c;

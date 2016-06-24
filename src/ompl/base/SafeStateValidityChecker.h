@@ -57,35 +57,10 @@ namespace ompl
             virtual void printStatePositions(const ompl::base::State *state, std::ostream &out = std::cout) const = 0;
 
 
-            bool humanPresence() const
-            {
-            	return human_presence_;
-            }
-
-
-            size_t getNbSafetyLinks() const
-            {
-            	return nb_safety_links_;
-            }
-
-            size_t getNbObjects() const
-            {
-            	return nb_objects_;
-            }
-
-            std::vector<double> getObjectDangerFactors()
-			{
-            	return obj_danger_factor_;
-			}
-
-        protected:
-            bool human_presence_;
-
-            size_t nb_safety_links_;
-            size_t nb_objects_;
-
-            std::vector<double> obj_danger_factor_;
-
+            virtual bool humanPresence() const = 0;
+            virtual size_t getNbSafetyLinks() const = 0;
+            virtual size_t getNbObjects() const = 0;
+            virtual double getObjectDangerFactor(size_t index) = 0;
 
         };
     }

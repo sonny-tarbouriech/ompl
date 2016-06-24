@@ -63,6 +63,8 @@ namespace ompl
             virtual bool isCostBetterThan(Cost c1, Cost c2) const;
             bool isCostBetterThan(Cost c1, double factor1, Cost c2, double factor2) const;
 
+            bool isCostEquivalentTo(Cost c1, double factor1, Cost c2, double factor2) const;
+
             virtual Cost motionCost(const State *s1, const State *s2) const;
             Cost motionCost(const State *s1, const State *s2, double& object_danger_factor) const;
             Cost motionCostInterpolation(const State *s1, const State *s2) const;

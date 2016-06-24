@@ -63,6 +63,12 @@ namespace ompl
             /** \brief Sample a state in the goal region */
             virtual void sampleGoal(State *st) const = 0;
 
+            //STa
+            virtual void sampleGoal(State *st, unsigned int samplePosition) const
+            {
+            	OMPL_ERROR("sampleGoal(State*, unsigned int) is not implemented in class GoalSampleableRegion");
+            }
+
             /** \brief Return the maximum number of samples that can be asked for before repeating */
             virtual unsigned int maxSampleCount() const = 0;
 

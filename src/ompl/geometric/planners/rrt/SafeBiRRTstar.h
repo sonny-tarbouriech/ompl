@@ -145,6 +145,13 @@ namespace ompl
             //STa temp
             size_t num_thread_;
 
+            bool 						cforestEnabled_;
+
+            unsigned int               rewireTest_ ;
+            unsigned int               statesGenerated_;
+            unsigned int               statesPruned_;
+            bool                        localstate_;
+
 
         protected:
 
@@ -244,12 +251,18 @@ namespace ompl
                     goalTreeMotion(NULL),
                     index(0)
                 {};
-                ~treeConnection();
+                ~treeConnection()
+                {
+                }
 
                 void updateWholeMotionCost(const base::SafeMultiOptimizationObjective* safe_multi_opt);
                 std::vector<const base::State*> getPath();
                 std::vector<const base::State*> getStatesToShare(boost::unordered_map<size_t, treeConnection*>& connection);
                 std::vector<base::SafetyCost> getIncCosts();
+
+                //STa temp
+                std::vector<const base::State*> getPath(std::vector<bool>& isGoalTree, std::vector<bool>& isStateShared);
+                std::vector<const base::State*> getStatesToShare(boost::unordered_map<size_t, treeConnection*> connection, ompl::base::SpaceInformationPtr  si, std::vector<bool>& isGoalTree, std::vector<bool>& isStateShared);
 
                 /** \brief Return the motion that most degrades the cost of the solution*/
                 void getWorstMotion(const base::SafeMultiOptimizationObjective* safe_multi_opt, Motion*& worstMotion, bool& isStartTree);
@@ -414,6 +427,7 @@ namespace ompl
             base::SafeStateValidityChecker*		    ssvc_;
             bool 									fast_dist_;
             double 									travel_dist_limit_;
+            double 									valid_segment_factor_;
 
 
             boost::unordered_map<size_t, treeConnection*> 			connection_;
@@ -423,9 +437,7 @@ namespace ompl
 
             // e+e/d.  K-nearest RRT*
             double k_rrg_;
-            unsigned int               rewireTest_ ;
-            unsigned int               statesGenerated_;
-            unsigned int               statesPruned_;
+
 
             /// \brief The range at which the algorithm will attempt to connect
             /// the two trees.
@@ -434,6 +446,7 @@ namespace ompl
 
             //STa temp
             std::ofstream output_file_;
+            std::stringstream file_name_;
 
 
 

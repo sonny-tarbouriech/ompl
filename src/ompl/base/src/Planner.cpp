@@ -298,7 +298,9 @@ const ompl::base::State* ompl::base::PlannerInputStates::nextGoal(const PlannerT
                     tempState_ = si_->allocState();
                 do
                 {
-                    goal->sampleGoal(tempState_);
+                	//STa
+//                    goal->sampleGoal(tempState_);
+                	goal->sampleGoal(tempState_, sampledGoalsCount_);
                     sampledGoalsCount_++;
                     bool bounds = si_->satisfiesBounds(tempState_);
                     bool valid = bounds ? si_->isValid(tempState_) : false;

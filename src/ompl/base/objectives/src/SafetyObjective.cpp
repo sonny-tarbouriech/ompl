@@ -104,6 +104,11 @@ bool ompl::base::SafetyObjective::isCostBetterThan(Cost c1, double factor1, Cost
 	return (c1.value() * factor1) > (c2.value() * factor2);
 }
 
+bool ompl::base::SafetyObjective::isCostEquivalentTo(Cost c1, double factor1, Cost c2, double factor2) const
+{
+    return ((c1.value() * factor1) > (c2.value() * factor2) - travel_dist_limit_/2) && ((c1.value() * factor1)- travel_dist_limit_/2 < (c2.value() * factor2)) ;
+}
+
 ompl::base::Cost ompl::base::SafetyObjective::motionCost(const State *s1, const State *s2) const
 {
 //	//STa test distance_motion

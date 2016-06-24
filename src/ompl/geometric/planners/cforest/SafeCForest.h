@@ -181,6 +181,12 @@ namespace ompl
             base::SafetyCost                            bestCost_;
             base::SafeMultiOptimizationObjective* 	    safe_multi_opt_;
 
+            /** \brief If this variable is disabled, the framework uses only standard parallelization   */
+            bool cforestEnabled_;
+
+            //STa test
+            ompl::time::point init_;
+
         };
     }
 }
