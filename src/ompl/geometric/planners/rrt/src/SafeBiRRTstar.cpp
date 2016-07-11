@@ -627,10 +627,7 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
 
     if(heuristicRejectionEnabled_ && !safe_multi_opt_->isCostDefined(*bestSharedCost_))
     {
-    	std::cout << "heuristicCost1 \n";
         base::SafetyCost heuristicCost = result->heuristicCost(safe_multi_opt_);
-    	std::cout << "heuristicCost2 \n";
-
 
         //If the sampled state can't improve the solution, we continue
         if (safe_multi_opt_->isSafetyCostBetterThan(*bestSharedCost_, heuristicCost))
@@ -685,7 +682,6 @@ ompl::geometric::SafeBiRRTstar::GrowResult ompl::geometric::SafeBiRRTstar::exten
     {
         if (fastCostEnabled_)
         {
-        	std::cout << "nbh[i]->cost.isRoot() = " << nbh[i]->cost.isRoot() << "\n";
             incCosts[i] = safe_multi_opt_->safeFastMotionCost(nbh[i]->state, result->state ,nbh[i]->stateCost, result->stateCost);
             costs[i] = safe_multi_opt_->safeCombineCosts(nbh[i]->cost, incCosts[i]);
             exactCost[i] = false;

@@ -421,10 +421,6 @@ bool ompl::base::SafeMotionValidator::checkMotionIndividualLinks(const State *s1
 
 double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(const State *s1, const State *s2, double travel_dist_limit, bool fast_dist, double& object_danger_factor) const
 {
-
-	size_t nb_segment_eval = 0;
-
-
 	std::priority_queue<SubSegment> ss_queue;
 
 	std::vector<std::vector<double> > dist_s1_obs, dist_s2_obs;

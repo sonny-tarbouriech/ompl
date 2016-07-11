@@ -411,7 +411,6 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
         //If heuristic combination is being used, the second condition is false and we don't compute this cost
         if (minMaxObjectiveImprovement_ && (c1.isRoot() || c1.hasImprovedCosts()))
         {
-        	std::cout << "safeCombineCosts1 \n";
             Cost c2_improved;
             double c2_object_danger_factor;
 
@@ -425,11 +424,9 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
                 }
                 else //c1 has necessarily improved costs
                 {
-                	std::cout << "safeCombineCosts1_2 \n";
                     if (c2.hasImprovedCosts())
                     {
                         c2_improved = c2.getIndividualCostImproved(i);
-                        std::cout << "safeCombineCosts1_3 \n";
                         c2_object_danger_factor = c2.getObjectDangerFactorImproved();
                     }
                     else
@@ -439,7 +436,6 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
                     }
                     if (c1.isImprovingCost(i) && !so->isCostBetterThan(c1.getIndividualCostImproved(i), c1.getObjectDangerFactorImproved(), c2_improved, c2_object_danger_factor))
                     {
-                    	std::cout << "safeCombineCosts1_4 \n";
                         c.addCostImproved(c2_improved);
                         c.addIsImprovingCost(true);
                         c.setObjectDangerFactorImproved(c2_object_danger_factor);
@@ -447,12 +443,10 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
                     }
                     else
                     {
-                    	std::cout << "safeCombineCosts1_5 \n";
                         double object_danger_factor;
                         c.addCostImproved(so->combineCosts(c1.getIndividualCostImproved(i), c1.getObjectDangerFactorImproved(), c2_improved, c2_object_danger_factor, object_danger_factor));
                         c.addIsImprovingCost(false);
                         c.setObjectDangerFactorImproved(object_danger_factor);
-                        std::cout << "safeCombineCosts1_6 \n";
                     }
                 }
                 so = NULL;
@@ -466,15 +460,12 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
                 }
                 else //c1 has necessarily improved costs
                 {
-                	std::cout << "safeCombineCosts1_7 \n";
                     if (c2.hasImprovedCosts())
                         c2_improved = c2.getIndividualCostImproved(i);
                     else
                         c2_improved = c2.getIndividualCost(i);
-                    std::cout << "safeCombineCosts1_8 \n";
                     if (c1.isImprovingCost(i) && !components_[i].objective->isCostBetterThan(c1.getIndividualCostImproved(i), c2_improved))
                     {
-                    	std::cout << "safeCombineCosts1_9 \n";
                         c.addCostImproved(c2_improved);
                         c.addIsImprovingCost(true);
                     }
@@ -485,7 +476,6 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
                     }
                 }
             }
-        	std::cout << "safeCombineCosts2 \n";
         }
 	}
 
