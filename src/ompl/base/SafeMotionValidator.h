@@ -4,7 +4,6 @@
 #define OMPL_BASE_SAFE_MOTION_VALIDATOR_
 
 #include "ompl/base/MotionValidator.h"
-//#include "ompl/base/SpaceInformation.h"
 #include "ompl/base/SafeStateValidityChecker.h"
 
 namespace ompl
@@ -28,12 +27,6 @@ namespace ompl
                 defaultSettings();
             }
 
-            /** \brief Constructor */
-            SafeMotionValidator(const SpaceInformationPtr &si) : MotionValidator(si)
-            {
-                defaultSettings();
-            }
-
             virtual ~SafeMotionValidator()
             {
             }
@@ -41,11 +34,6 @@ namespace ompl
             virtual bool checkMotion(const State *s1, const State *s2) const;
             virtual bool checkMotion(const State *s1, const State *s2, std::pair<State*, double> &lastValid) const;
             bool checkMotion(const State *s1, const State *s2, double valid_segment_factor) const;
-
-            //STa test
-            bool checkMotionTEST(const State *s1, const State *s2);
-            bool checkMotionSelfTEST(const State *s1, const State *s2);
-
 
             bool checkMotionIndividualLinksWithDist(const State *s1, const State *s2, double travel_dist_limit, double& min_obstacle_dist, bool fast_dist);
             bool checkMotionIndividualLinks(const State *s1, const State *s2, double travel_dist_limit, bool fast_dist);

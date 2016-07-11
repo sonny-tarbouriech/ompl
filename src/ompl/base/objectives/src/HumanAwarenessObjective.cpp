@@ -32,33 +32,36 @@
 *  POSSIBILITY OF SUCH DAMAGE.
 *********************************************************************/
 
-/* Author: Luis G. Torres */
+/* Author: Sonny Tarbouriech */
 
 #include "ompl/base/objectives/HumanAwarenessObjective.h"
 #include "ompl/tools/config/MagicConstants.h"
 #include "ompl/geometric/PathGeometric.h"
 #include <limits>
 
-//STa test
-#include <fstream>
-#include <ompl/util/Time.h>
-
 ompl::base::HumanAwarenessObjective::
 HumanAwarenessObjective(const SpaceInformationPtr &si) :
-HumanAwarenessObjective(si, identityCost())
+OptimizationObjective(si)
 {
+	isMinMaxObjective_ = true;
+	this->setCostThreshold(identityCost());
+
+	ssvc_ = dynamic_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
+	if (!ssvc_)
+		throw Exception("HumanAwarenessObjective requires SafeStateValidityChecker to work");
 }
 
 
 ompl::base::HumanAwarenessObjective::
 HumanAwarenessObjective(const SpaceInformationPtr &si, Cost cost_threshold) :
-	OptimizationObjective(si)
+OptimizationObjective(si)
 {
-    isMinMaxObjective_ = true;
+	isMinMaxObjective_ = true;
 	this->setCostThreshold(cost_threshold);
 
-	//TODO : return error if si_ has not a SafeStateValidityChecker
-	    ssvc_ = dynamic_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
+	ssvc_ = dynamic_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
+	if (!ssvc_)
+		throw Exception("HumanAwarenessObjective requires SafeStateValidityChecker to work");
 }
 
 bool ompl::base::HumanAwarenessObjective::isSymmetric() const
@@ -73,32 +76,6 @@ ompl::base::Cost ompl::base::HumanAwarenessObjective::stateCost(const State *s) 
 
 ompl::base::Cost ompl::base::HumanAwarenessObjective::motionCost(const State *s1, const State *s2) const
 {
-//	//STa test singularity
-//	std::string homepath = getenv("HOME");
-//	std::ofstream output_file((homepath + "/singularity_time.txt").c_str(), std::ios::out | std::ios::app);
-//	std::ofstream output_file_2((homepath + "/singularity_result.txt").c_str(), std::ios::out | std::ios::app);
-//	ompl::time::point init = ompl::time::now();
-//	float MAX_DANGER_DIST, ALPHA;
-//	double min_dist = ssvc_->manipulability(s1, s2);
-//	MAX_DANGER_DIST = 0.05, ALPHA = 1;
-//	double c1 = 1 - (1 / (1 + exp((min_dist*(2/MAX_DANGER_DIST)-1)*ALPHA)));
-//	ompl::time::duration dur = ompl::time::now() - init;
-//	MAX_DANGER_DIST = 0.1, ALPHA = 1;
-//	double c2 = 1 - (1 / (1 + exp((min_dist*(2/MAX_DANGER_DIST)-1)*ALPHA)));
-//	MAX_DANGER_DIST = 0.2, ALPHA = 1;
-//	double c3 = 1 - (1 / (1 + exp((min_dist*(2/MAX_DANGER_DIST)-1)*ALPHA)));
-//	MAX_DANGER_DIST = 1, ALPHA = 1;
-//	double c4 = 1 - (1 / (1 + exp((min_dist*(2/MAX_DANGER_DIST)-1)*ALPHA)));
-//	MAX_DANGER_DIST = 2, ALPHA = 1;
-//	double c5 = 1 - (1 / (1 + exp((min_dist*(2/MAX_DANGER_DIST)-1)*ALPHA)));
-//	output_file << ompl::time::seconds(dur) << "\n";
-//	output_file_2 << min_dist << "  " << c1 << "  " << c2 << "  " << c3 << "  " << c4 << "  " << c5  << "\n";
-//	return Cost(c3);
-
-//	double min_dist = ssvc_->manipulability(s1, s2);
-//
-//	return Cost(min_dist);
-
 	Cost worstCost = this->identityCost();
 	int nd = si_->getStateSpace()->validSegmentCount(s1, s2) ;
 	if (nd > 1)
@@ -118,9 +95,7 @@ ompl::base::Cost ompl::base::HumanAwarenessObjective::motionCost(const State *s1
 	if (this->isCostBetterThan(worstCost, lastCost))
 		worstCost = lastCost;
 
-
     return worstCost;
-
 }
 
 

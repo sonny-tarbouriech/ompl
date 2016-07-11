@@ -125,7 +125,7 @@ ompl::base::PlannerStatus ompl::tools::ParallelPlan::solve(const base::PlannerTe
                 pdef_->addSolutionPath(hsol, approximate, difference, phybrid_->getName()); // name this solution after the hybridization algorithm
             }
     }
-    //STa
+    //STa: Select the best solution if more than 1 thread have found one.
     else if (pdef_->hasSolution())
     {
     	ompl::base::SafeMultiOptimizationObjective* smoo = dynamic_cast<ompl::base::SafeMultiOptimizationObjective*>(pdef_->getOptimizationObjective().get());
@@ -134,8 +134,6 @@ ompl::base::PlannerStatus ompl::tools::ParallelPlan::solve(const base::PlannerTe
     		std::vector<ompl::base::PlannerSolution> solutions = pdef_->getSolutions();
     		if (solutions.size() > 1)
     		{
-//    	    	//STa temp
-//    	    	std::cout << "ParallelPlan::solve solutions.size() = " << solutions.size() << "\n";
     			ompl::base::PlannerSolution bestSolution = solutions[0];
     			for (size_t i=1; i < solutions.size(); ++i)
     			{
@@ -143,16 +141,9 @@ ompl::base::PlannerStatus ompl::tools::ParallelPlan::solve(const base::PlannerTe
     				{
     					bestSolution = solutions[i];
     				}
-//    				//STa temp
-//    				std::cout << "solutions[" << i << "].safetyCost_" <<solutions[i].safetyCost_ << "\n";
-//    				solutions[i].path_->print(std::cout);
-//    				std::cout << "\n";
     			}
     			pdef_->clearSolutionPaths();
     			pdef_->addSolutionPath(bestSolution);
-//    			//STa temp
-//    			std::cout << "pdef path : ";
-//    			pdef_->getSolutionPath()->print(std::cout);
     		}
     	}
     }

@@ -1,5 +1,4 @@
 //STa
-
 #include "ompl/base/SafeMotionValidator.h"
 #include "ompl/util/Exception.h"
 #include <queue>
@@ -7,18 +6,15 @@
 
 #include "ompl/base/SpaceInformation.h"
 
-//STa test
-#include <fstream>
-#include <ompl/util/Time.h>
-
 void ompl::base::SafeMotionValidator::defaultSettings()
 {
     stateSpace_ = si_->getStateSpace().get();
     if (!stateSpace_)
         throw Exception("No state space for motion validator");
 
-    //TODO : return error if si_ has not a SafeStateValidityChecker
-    ssvc_ = static_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
+    ssvc_ = dynamic_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
+    if (!ssvc_)
+    	throw Exception("SafeMotionValidator needs a SafeStateValidityChecker to perform");
 }
 
 // Function copied from DiscreteMotionValidator to compare results and performances
@@ -125,65 +121,8 @@ bool ompl::base::SafeMotionValidator::checkMotion(const State *s1, const State *
 	return result;
 }
 
-//STa test
-bool ompl::base::SafeMotionValidator::checkMotionTEST(const State *s1, const State *s2)
-{
-	//STa test
-	std::string homepath = getenv("HOME");
-	std::ofstream output_file((homepath + "/checkmotion_time.txt").c_str(), std::ios::out | std::ios::app);
-	std::ofstream output_file_2((homepath + "/checkmotion_result.txt").c_str(), std::ios::out | std::ios::app);
-	ompl::time::point init = ompl::time::now();
-	bool check_dynamic_1 = checkMotionIndividualLinks(s1,s2,0.1, false);
-	ompl::time::duration dyn1 = ompl::time::now() - init;
-	bool check_dynamic_2 = checkMotionIndividualLinks(s1,s2,0.01, false);
-	ompl::time::duration dyn2 = ompl::time::now() - init - dyn1;
-	bool check_discrete_1 = checkMotion(s1,s2);
-	ompl::time::duration dis1 = ompl::time::now() - init - dyn1 - dyn2;
-	bool check_discrete_2 = checkMotion(s1,s2,5);
-	ompl::time::duration dis2 = ompl::time::now() - init - dyn1 - dyn2 - dis1;
-	bool check_exact = checkMotion(s1,s2,100);
-	output_file << ompl::time::seconds(dyn1) << "  " << ompl::time::seconds(dyn2)<< "  " << ompl::time::seconds(dis1)<< "  " << ompl::time::seconds(dis2) << "\n";
-	output_file_2 << check_dynamic_1 << "  " << check_dynamic_2 << "  " << check_discrete_1 << "  " << check_discrete_2 << "  " << check_exact  << "\n";
-	output_file.close();
-	output_file_2.close();
-	return check_exact;
-}
-
-//STa test
-bool ompl::base::SafeMotionValidator::checkMotionSelfTEST(const State *s1, const State *s2)
-{
-	//STa test
-	std::string homepath = getenv("HOME");
-	std::ofstream output_file((homepath + "/checkmotionself_time.txt").c_str(), std::ios::out | std::ios::app);
-	std::ofstream output_file_2((homepath + "/checkmotionself_result.txt").c_str(), std::ios::out | std::ios::app);
-	ompl::time::point init = ompl::time::now();
-	bool check_dynamic_1 = checkMotionSelfCCIndividualLinks(s1,s2,0.1);
-	ompl::time::duration dyn1 = ompl::time::now() - init;
-	bool check_dynamic_2 = checkMotionSelfCCIndividualLinks(s1,s2,0.01);
-	ompl::time::duration dyn2 = ompl::time::now() - init - dyn1;
-	bool check_discrete_1 = checkMotionSelfCCDiscrete(s1,s2,1);
-	ompl::time::duration dis1 = ompl::time::now() - init - dyn1 - dyn2;
-	bool check_discrete_2 = checkMotionSelfCCDiscrete(s1,s2,5);
-	ompl::time::duration dis2 = ompl::time::now() - init - dyn1 - dyn2 - dis1;
-	bool check_discrete_ws_1 = checkMotionSelfCCDiscreteWS(s1,s2,0.1);
-	ompl::time::duration disws1 = ompl::time::now() - init - dyn1 - dyn2 - dis1 - dis2;
-	bool check_discrete_ws_2 = checkMotionSelfCCDiscreteWS(s1,s2,0.01);
-	ompl::time::duration disws2 = ompl::time::now() - init - dyn1 - dyn2 - dis1 - dis2 - disws1;
-	bool check_exact = checkMotionSelfCCDiscrete(s1,s2,100);
-	output_file << ompl::time::seconds(dyn1) << "  " << ompl::time::seconds(dyn2)<< "  " << ompl::time::seconds(dis1)<< "  " << ompl::time::seconds(dis2) << "  " << ompl::time::seconds(disws1)<< "  " << ompl::time::seconds(disws2) << "\n";
-	output_file_2 << check_dynamic_1 << "  " << check_dynamic_2 << "  " << check_discrete_1 << "  " << check_discrete_2 << "  "  << check_discrete_ws_1 << "  " << check_discrete_ws_2 << "  " << check_exact  << "\n";
-	output_file.close();
-	output_file_2.close();
-	return check_exact;
-}
-
 bool ompl::base::SafeMotionValidator::checkMotionIndividualLinksWithDist(const State *s1, const State *s2, double travel_dist_limit, double& min_obstacle_dist, bool fast_dist)
 {
-//	//STa temp
-//	std::string homepath = getenv("HOME");
-//	std::ofstream output_file_1((homepath + "/nb_segment_eval_IndividualObjectsWithSelfCC_dist.txt").c_str(), std::ios::out | std::ios::app);
-//	size_t nb_segment_eval = 0;
-
 	std::priority_queue<SubSegment> ss_queue;
 	min_obstacle_dist = std::numeric_limits<double>::infinity();
 
@@ -201,10 +140,6 @@ bool ompl::base::SafeMotionValidator::checkMotionIndividualLinksWithDist(const S
 
 			if ((dist_s1_obs[i][j] <= 0) || (dist_s2_obs[i][j] <= 0) )
 			{
-//				//STa temp
-//				output_file_1 << nb_segment_eval << "\n";
-//				output_file_1.close();
-
 				min_obstacle_dist = -1;
 				return false;
 			}
@@ -221,10 +156,6 @@ bool ompl::base::SafeMotionValidator::checkMotionIndividualLinksWithDist(const S
 		}
 		if ((dist_s1_self[i] <= 0) || (dist_s2_self[i] <= 0))
 		{
-//			//STa temp
-//			output_file_1 << nb_segment_eval << "\n";
-//			output_file_1.close();
-
 			min_obstacle_dist = -1;
 			return false;
 		}
@@ -250,8 +181,6 @@ bool ompl::base::SafeMotionValidator::checkMotionIndividualLinksWithDist(const S
 
 		State *s_new = si_->allocState();
 
-		//STa : Interpolation guidée par la distance. Attention a modifier t_s1_ et t_s2_ si utilisée.
-//		double t = current_ss.dist_s1_obs_ / (current_ss.dist_s1_obs_ + current_ss.dist_s2_obs_);
 		double t = (2*current_ss.dist_s1_obs_ + current_ss.non_covered_length_) / (2*(current_ss.dist_s1_obs_ + current_ss.dist_s2_obs_ + current_ss.non_covered_length_));
 
 		double t_abs = current_ss.t_s1_ + (current_ss.t_s2_ - current_ss.t_s1_) * t;
@@ -261,16 +190,9 @@ bool ompl::base::SafeMotionValidator::checkMotionIndividualLinksWithDist(const S
 
 		if (!current_ss.self_cc_)
 		{
-//			//STa temp
-//			nb_segment_eval++;
-
 			double dist_snew_obs = ssvc_->computeLinkMinObstacleDist(s_new, current_ss.link_index_, current_ss.object_index_, fast_dist);
 			if (dist_snew_obs <= 0)
 			{
-//				//STa temp
-//				output_file_1 << nb_segment_eval << "\n";
-//				output_file_1.close();
-
 				min_obstacle_dist = -1;
 				return false;
 			}
@@ -298,16 +220,9 @@ bool ompl::base::SafeMotionValidator::checkMotionIndividualLinksWithDist(const S
 		}
 		else
 		{
-//			//STa temp
-//			nb_segment_eval++;
-
 			double dist_snew_self = ssvc_->computeLinkMinSelfDist(s_new, current_ss.link_index_);
 			if (dist_snew_self <= 0)
 			{
-//				//STa temp
-//				output_file_1 << nb_segment_eval << "\n";
-//				output_file_1.close();
-
 				min_obstacle_dist = -1;
 				return false;
 			}
@@ -342,23 +257,6 @@ bool ompl::base::SafeMotionValidator::checkMotionIndividualLinksWithDist(const S
 			flag = dist_travel[ss_queue.top().link_index_]*(ss_queue.top().t_s2_ - ss_queue.top().t_s1_) < travel_dist_limit;
 
 	}
-
-	//STa temp
-//	ompl::time::duration elapsed = ompl::time::now() - startTime;
-//	std::string homepath = getenv("HOME");
-//	std::ofstream output_file_1((homepath + "/log.txt").c_str(), std::ios::out | std::ios::app);
-//	if (output_file_1)
-//	{
-//		output_file_1 << "checkMotionIndividualObjectsWithSelfCC with distance duration : " <<  ompl::time::seconds(elapsed) << " seconds \n ";
-//		output_file_1.close();
-//	}
-
-
-//	//STa temp
-//	output_file_1 << nb_segment_eval << "\n";
-//	output_file_1.close();
-
-//	std::cout << "non_covered_length_ = " << ss_queue.top().non_covered_length_ << "\n";
 
 	if (!ss_queue.empty())
 	{
@@ -523,18 +421,9 @@ bool ompl::base::SafeMotionValidator::checkMotionIndividualLinks(const State *s1
 
 double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(const State *s1, const State *s2, double travel_dist_limit, bool fast_dist, double& object_danger_factor) const
 {
-	//STa temp
-//	std::cout << "Enter minObstacleDistMotionIndividualObjects \n";
-//	std::string homepath = getenv("HOME");
-//	std::ofstream output_file_1((homepath + "/minObstacleDistMotionIndividualObjects.txt").c_str(), std::ios::out | std::ios::app);
-//	output_file_1 << "state 1 : \n";
-//	si_->printState(s1, output_file_1);
-//    output_file_1 << "state 2 : \n";
-//    si_->printState(s2, output_file_1);
-//	output_file_1 << "min dist fcl = " << minObstacleDistMotionDiscrete(s1,s2, 1, fast_dist) << "\n";
-//	output_file_1 << "nb objects = " << ssvc_->getNbObjects() << "\n";
-////	output_file_1 << "nb interpolation = " << si_->getStateSpace()->validSegmentCount(s1, s2) << "\n";
+
 	size_t nb_segment_eval = 0;
+
 
 	std::priority_queue<SubSegment> ss_queue;
 
@@ -542,36 +431,18 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 	std::vector<double> dist_travel;
 
 	ssvc_->computeInitialDistDataObstacle(s1, s2, dist_s1_obs, dist_s2_obs, fast_dist);
-	//STa temp
 	ssvc_->computeInitialDistDataTravelModulation(s1, s2, dist_travel);
-//	ssvc_->computeInitialDistDataTravel(s1, s2, dist_travel);
 
 	if (dist_travel[dist_travel.size() - 1] == 0)
-	{
-        //STa temp
-        std::cout << "minObstacleDistMotionIndividualObjects : \n";
-        si_->getStateSpace()->printState(s1, std::cout);
-        si_->getStateSpace()->printState(s2, std::cout);
-
-
 	    throw Exception("minObstacleDistMotionIndividualObjects : The two states defining the motion are the same");
-	}
 
 	for (size_t i = 0; i < ssvc_->getNbSafetyLinks(); ++i)
 	{
 		for (size_t j = 0; j < ssvc_->getNbObjects(); ++j)
 		{
-
 			if ((dist_s1_obs[i][j] <= 0) || (dist_s2_obs[i][j] <= 0) )
-			{
-//				//STa temp
-//				output_file_1 << nb_segment_eval << "\t";
-//				output_file_1 << "min dist approx = " << -1 << "\n";
-//				output_file_1 << nb_segment_eval << "\n";
-//				output_file_1.close();
-
 				return -1; //Collision
-			}
+
 			SubSegment ss;
 			ss.t_s1_ = 0;
 			ss.t_s2_ = 1;
@@ -582,17 +453,6 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 			ss.dist_s2_obs_ = dist_s2_obs[i][j];
 			ss.non_covered_length_ = dist_travel[i] - (dist_s1_obs[i][j] + dist_s2_obs[i][j]);
 			ss_queue.push(ss);
-
-//	        //STa temp
-//	        output_file_1 << "ss.dist_s1_obs_ = " << ss.dist_s1_obs_ << "\n"
-//	                << "ss.dist_s2_obs_ = " << ss.dist_s2_obs_ << "\n"
-//	                << "ss.dist_travel = " << dist_travel[ss.link_index_]*(ss.t_s2_ - ss.t_s1_) << "\n"
-//	                << "ss.link_index_ = " << ss.link_index_ << "\n"
-//	                << "ss.non_covered_length_ = " << ss.non_covered_length_ << "\n"
-//	                << "ss.object_index_ = " << ss.object_index_ << "\n"
-//	                << "ss.t_s1_ = " << ss.t_s1_ << "\n"
-//	                << "ss.t_s2_ = " << ss.t_s2_ << "\n \n";
-
 		}
 
 	}
@@ -608,37 +468,14 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 		double t = (2*current_ss.dist_s1_obs_ + current_ss.non_covered_length_) / (2*(current_ss.dist_s1_obs_ + current_ss.dist_s2_obs_ + current_ss.non_covered_length_));
 		double t_abs = current_ss.t_s1_ + (current_ss.t_s2_ - current_ss.t_s1_) * t;
 
-//		//STa temp
-//		output_file_1 << "current_ss.dist_s1_obs_ = " << current_ss.dist_s1_obs_ << "\n"
-//				<< "current_ss.dist_s2_obs_ = " << current_ss.dist_s2_obs_ << "\n"
-//				<< "current_ss.dist_travel = " << dist_travel[current_ss.link_index_]*(current_ss.t_s2_ - current_ss.t_s1_) << "\n"
-//				<< "current_ss.link_index_ = " << current_ss.link_index_ << "\n"
-//				<< "current_ss.non_covered_length_ = " << current_ss.non_covered_length_ << "\n"
-//				<< "current_ss.object_index_ = " << current_ss.object_index_ << "\n"
-//				<< "current_ss.t_s1_ = " << current_ss.t_s1_ << "\n"
-//				<< "current_ss.t_s2_ = " << current_ss.t_s2_ << "\n"
-//				<< "t = " << t << "\n"
-//				<< "t_abs = " << t_abs << "\n \n";
-
 		stateSpace_->interpolate(s1, s2, t_abs, s_new);
 
 
 		double dist_snew_obs = ssvc_->computeLinkMinObstacleDist(s_new, current_ss.link_index_, current_ss.object_index_, fast_dist);
 
-
-		//STa temp
-		nb_segment_eval++;
-
 		if (dist_snew_obs <= 0)
-		{
-//			//STa temp
-//			output_file_1 << nb_segment_eval << "\t";
-//			output_file_1 << "dist_snew_obs <= 0 : min dist approx = -1 \n";
-//			output_file_1 << nb_segment_eval << "\n";
-//			output_file_1.close();
-
 			return -1; //Collision
-		}
+
 		SubSegment ss1,ss2;
 
 		ss1.t_s1_ = current_ss.t_s1_;
@@ -651,16 +488,6 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 		ss1.non_covered_length_ = dist_travel[ss1.link_index_]*(ss1.t_s2_ - ss1.t_s1_) - (ss1.dist_s1_obs_ + ss1.dist_s2_obs_);
 		ss_queue.push(ss1);
 
-//		//STa temp
-//		output_file_1 << "ss1.dist_s1_obs_ = " << ss1.dist_s1_obs_ << "\n"
-//		        << "ss1.dist_s2_obs_ = " << ss1.dist_s2_obs_ << "\n"
-//		        << "ss1.dist_travel = " << dist_travel[ss1.link_index_]*(ss1.t_s2_ - ss1.t_s1_) << "\n"
-//		        << "ss1.link_index_ = " << ss1.link_index_ << "\n"
-//		        << "ss1.non_covered_length_ = " << ss1.non_covered_length_ << "\n"
-//		        << "ss1.object_index_ = " << ss1.object_index_ << "\n"
-//		        << "ss1.t_s1_ = " << ss1.t_s1_ << "\n"
-//		        << "ss1.t_s2_ = " << ss1.t_s2_ << "\n \n";
-
 		ss2.t_s1_ = t_abs;
 		ss2.t_s2_ = current_ss.t_s2_;
 		ss2.link_index_ = current_ss.link_index_;
@@ -671,43 +498,14 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 		ss2.non_covered_length_ = dist_travel[ss2.link_index_]*(ss2.t_s2_ - ss2.t_s1_) - (ss2.dist_s1_obs_ + ss2.dist_s2_obs_);
 		ss_queue.push(ss2);
 
-//        //STa temp
-//        output_file_1 << "ss2.dist_s1_obs_ = " << ss2.dist_s1_obs_ << "\n"
-//                << "ss2.dist_s2_obs_ = " << ss2.dist_s2_obs_ << "\n"
-//                << "ss2.dist_travel = " << dist_travel[ss2.link_index_]*(ss2.t_s2_ - ss2.t_s1_) << "\n"
-//                << "ss2.link_index_ = " << ss2.link_index_ << "\n"
-//                << "ss2.non_covered_length_ = " << ss2.non_covered_length_ << "\n"
-//                << "ss2.object_index_ = " << ss2.object_index_ << "\n"
-//                << "ss2.t_s1_ = " << ss2.t_s1_ << "\n"
-//                << "ss2.t_s2_ = " << ss2.t_s2_ << "\n \n";
-
 		si_->freeState(s_new);
 		if (!ss_queue.empty())
 			flag = dist_travel[ss_queue.top().link_index_]*(ss_queue.top().t_s2_ - ss_queue.top().t_s1_) < travel_dist_limit;
 
-
 	}
-
 
 	if (ss_queue.empty())
 		return std::numeric_limits<double>::infinity();
-
-//	//STa temp
-//	output_file_1 << "ss_queue.dist_s1_obs_ = " << ss_queue.top().dist_s1_obs_ << "\n"
-//			<< "ss_queue.dist_s2_obs_ = " << ss_queue.top().dist_s2_obs_ << "\n"
-//			<< "ss_queue.dist_travel = " << ss_queue.top().non_covered_length_ + ss_queue.top().dist_s1_obs_+ss_queue.top().dist_s2_obs_ << "\n"
-//			<< "ss_queue.link_index_ = " << ss_queue.top().link_index_ << "\n"
-//			<< "ss_queue.non_covered_length_ = " << ss_queue.top().non_covered_length_ << "\n"
-//			<< "ss_queue.object_index_ = " << ss_queue.top().object_index_ << "\n"
-//			<< "ss_queue.t_s1_ = " << ss_queue.top().t_s1_ << "\n"
-//			<< "ss_queue.t_s2_ = " << ss_queue.top().t_s2_ << "\n \n";
-
-//	//STa temp
-//	double d_temp = -ss_queue.top().non_covered_length_ <= 0 ? -1 : -ss_queue.top().non_covered_length_/2;
-//	output_file_1 << nb_segment_eval << "\t";
-//	output_file_1 << "min dist approx = " << d_temp << "\n \n";
-//	output_file_1 << nb_segment_eval << "\n";
-//	output_file_1.close();
 
 	object_danger_factor = ss_queue.top().obj_danger_factor_;
 
@@ -719,165 +517,7 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjects(c
 	}
 	else
 	    return -1;
-
 }
-
-
-double ompl::base::SafeMotionValidator::minObstacleDistMotionIndividualObjectsTEST(const State *s1, const State *s2, double travel_dist_limit, bool fast_dist) const
-{
-	//STa temp
-	std::string homepath = getenv("HOME");
-	std::ofstream output_file_1((homepath + "/nb_segment_eval_safety_obj_dist.txt").c_str(), std::ios::out | std::ios::app);
-	size_t nb_segment_eval = 0;
-
-	std::priority_queue<SubSegment> ss_queue;
-
-	std::vector<std::vector<double> > dist_s1_obs, dist_s2_obs;
-	std::vector<double> dist_travel;
-
-
-	ssvc_->computeInitialDistDataObstacle(s1, s2, dist_s1_obs, dist_s2_obs, fast_dist);
-	ssvc_->computeInitialDistDataTravelModulation(s1, s2, dist_travel);
-
-	for (size_t i = 0; i < ssvc_->getNbSafetyLinks(); ++i)
-	{
-		for (size_t j = 0; j < ssvc_->getNbObjects(); ++j)
-		{
-
-			if ((dist_s1_obs[i][j] <= 0) || (dist_s2_obs[i][j] <= 0) )
-			{
-//				//STa temp
-				output_file_1 << nb_segment_eval << "\n";
-//				output_file_1 << "min dist approx modulation = " << -1 << "\n";
-//				output_file_1 << nb_segment_eval << "\n \n \n \n";
-				output_file_1.close();
-
-				return -1; //Collision
-			}
-			SubSegment ss;
-			ss.t_s1_ = 0;
-			ss.t_s2_ = 1;
-			ss.link_index_ = i;
-			ss.object_index_ = j;
-			ss.dist_s1_obs_ = dist_s1_obs[i][j];
-			ss.dist_s2_obs_ = dist_s2_obs[i][j];
-			ss.non_covered_length_ = dist_travel[i] - (dist_s1_obs[i][j] + dist_s2_obs[i][j]);
-			ss_queue.push(ss);
-
-		}
-
-	}
-
-	bool flag = false;
-	while (!flag && !ss_queue.empty())
-	{
-		SubSegment current_ss = ss_queue.top();
-		ss_queue.pop();
-
-//		//STa temp
-//		output_file_1 << "current_ss.dist_s1_obs_ = " << current_ss.dist_s1_obs_ << "\n"
-//				<< "current_ss.dist_s2_obs_ = " << current_ss.dist_s2_obs_ << "\n"
-//				<< "current_ss.dist_travel = " << current_ss.non_covered_length_ + current_ss.dist_s1_obs_+current_ss.dist_s2_obs_ << "\n"
-//				<< "current_ss.link_index_ = " << current_ss.link_index_ << "\n"
-//				<< "current_ss.non_covered_length_ = " << current_ss.non_covered_length_ << "\n"
-//				<< "current_ss.object_index_ = " << current_ss.object_index_ << "\n"
-//				<< "current_ss.self_cc_ = " << current_ss.self_cc_ << "\n"
-//				<< "current_ss.t_s1_ = " << current_ss.t_s1_ << "\n"
-//				<< "current_ss.t_s2_ = " << current_ss.t_s2_ << "\n \n";
-
-		State *s_new = si_->allocState();
-
-		//STa : Interpolation guidée par la distance. Attention a modifier t_s1_ et t_s2_ si utilisée.
-//		double t = current_ss.dist_s1_obs_ / (current_ss.dist_s1_obs_ + current_ss.dist_s2_obs_);
-		double t = (2*current_ss.dist_s1_obs_ + current_ss.non_covered_length_) / (2*(current_ss.dist_s1_obs_ + current_ss.dist_s2_obs_ + current_ss.non_covered_length_));
-
-		double t_abs = current_ss.t_s1_ + (current_ss.t_s2_ - current_ss.t_s1_) * t;
-
-		stateSpace_->interpolate(s1, s2, t_abs, s_new);
-
-		double dist_snew_obs = ssvc_->computeLinkMinObstacleDist(s_new, current_ss.link_index_, current_ss.object_index_, fast_dist);
-
-		//STa temp
-		nb_segment_eval++;
-
-		if (dist_snew_obs <= 0)
-		{
-//			//STa temp
-			output_file_1 << nb_segment_eval << "\n";
-//			output_file_1 << "dist_snew_obs <= 0 : min dist approx modulation = -1 \n";
-//			output_file_1 << nb_segment_eval << "\n \n \n \n";
-			output_file_1.close();
-
-			return -1; //Collision
-		}
-		SubSegment ss1,ss2;
-
-		State *s_temp = si_->allocState();
-		stateSpace_->interpolate(s1, s2, current_ss.t_s1_, s_temp);
-
-		dist_travel[current_ss.link_index_] = ssvc_->computeDistTravelModulation(s_temp, s_new ,current_ss.link_index_);
-
-		ss1.t_s1_ = current_ss.t_s1_;
-		ss1.t_s2_ = t_abs;
-		ss1.link_index_ = current_ss.link_index_;
-		ss1.object_index_ = current_ss.object_index_;
-		ss1.dist_s1_obs_ = current_ss.dist_s1_obs_;
-		ss1.dist_s2_obs_ = dist_snew_obs;
-		ss1.non_covered_length_ = dist_travel[ss1.link_index_] - (ss1.dist_s1_obs_ + ss1.dist_s2_obs_);
-		ss_queue.push(ss1);
-
-		stateSpace_->interpolate(s1, s2, current_ss.t_s2_, s_temp);
-		dist_travel[current_ss.link_index_] = ssvc_->computeDistTravelModulation(s_new, s_temp ,current_ss.link_index_);
-
-		ss2.t_s1_ = t_abs;
-		ss2.t_s2_ = current_ss.t_s2_;
-		ss2.link_index_ = current_ss.link_index_;
-		ss2.object_index_ = current_ss.object_index_;
-		ss2.dist_s1_obs_ = dist_snew_obs;
-		ss2.dist_s2_obs_ = current_ss.dist_s2_obs_;
-		ss2.non_covered_length_ = dist_travel[ss2.link_index_] - (ss2.dist_s1_obs_ + ss2.dist_s2_obs_);
-		ss_queue.push(ss2);
-
-		if (!ss_queue.empty())
-		{
-			stateSpace_->interpolate(s1, s2, ss_queue.top().t_s1_, s_temp);
-			stateSpace_->interpolate(s1, s2, ss_queue.top().t_s2_, s_new);
-			dist_travel[ss_queue.top().link_index_] = ssvc_->computeDistTravelModulation(s_temp, s_new ,ss_queue.top().link_index_);
-
-			flag = dist_travel[ss_queue.top().link_index_] < travel_dist_limit;
-		}
-
-		si_->freeState(s_new);
-		si_->freeState(s_temp);
-	}
-
-
-	if (ss_queue.empty())
-		return std::numeric_limits<double>::infinity();
-
-//	//STa temp
-//	output_file_1 << "ss_queue.dist_s1_obs_ = " << ss_queue.top().dist_s1_obs_ << "\n"
-//			<< "ss_queue.dist_s2_obs_ = " << ss_queue.top().dist_s2_obs_ << "\n"
-//			<< "ss_queue.dist_travel = " << ss_queue.top().non_covered_length_ + ss_queue.top().dist_s1_obs_+ss_queue.top().dist_s2_obs_ << "\n"
-//			<< "ss_queue.link_index_ = " << ss_queue.top().link_index_ << "\n"
-//			<< "ss_queue.non_covered_length_ = " << ss_queue.top().non_covered_length_ << "\n"
-//			<< "ss_queue.object_index_ = " << ss_queue.top().object_index_ << "\n"
-//			<< "ss_queue.self_cc_ = " << ss_queue.top().self_cc_ << "\n"
-//			<< "ss_queue.t_s1_ = " << ss_queue.top().t_s1_ << "\n"
-//			<< "ss_queue.t_s2_ = " << ss_queue.top().t_s2_ << "\n \n";
-
-//	//STa temp
-//	double d_temp = -ss_queue.top().non_covered_length_ <= 0 ? -1 : -ss_queue.top().non_covered_length_/2;
-	output_file_1 << nb_segment_eval << "\n";
-//	output_file_1 << "min dist approx modulation = " << d_temp << "\n";
-//	output_file_1 << nb_segment_eval << "\n \n \n \n";
-	output_file_1.close();
-
-	return (ss_queue.top().non_covered_length_ > 0 ? -1 : -ss_queue.top().non_covered_length_/2);
-
-
-}
-
 
 
 double ompl::base::SafeMotionValidator::minObstacleDistMotionDiscrete(const State *s1, const State *s2, double valid_segment_factor, bool fast_dist) const
@@ -952,11 +592,6 @@ double ompl::base::SafeMotionValidator::minObstacleDistMotionDiscreteExact(const
 
 bool ompl::base::SafeMotionValidator::checkMotionSelfCCIndividualLinks(const State *s1, const State *s2, double travel_dist_limit) const
 {
-//	//STa temp
-//	std::string homepath = getenv("HOME");
-//	std::ofstream output_file_1((homepath + "/nb_segment_eval_SelfCCIndividualLinks.txt").c_str(), std::ios::out | std::ios::app);
-//	size_t nb_segment_eval = 0;
-
 	std::priority_queue<SubSegment> ss_queue;
 
 	std::vector<double> dist_s1_self, dist_s2_self;
@@ -969,13 +604,8 @@ bool ompl::base::SafeMotionValidator::checkMotionSelfCCIndividualLinks(const Sta
 	for (size_t i = 0; i < ssvc_->getNbSafetyLinks(); ++i)
 	{
 		if ((dist_s1_self[i] <= 0) || (dist_s2_self[i] <= 0))
-		{
-//			//STa temp
-//			output_file_1 << nb_segment_eval << "\n";
-//			output_file_1.close();
-
 			return false;
-		}
+
 		if (dist_travel[i] - (dist_s1_self[i] + dist_s2_self[i]) > 0)
 		{
 			SubSegment ss;
@@ -998,8 +628,6 @@ bool ompl::base::SafeMotionValidator::checkMotionSelfCCIndividualLinks(const Sta
 
 		State *s_new = si_->allocState();
 
-		//Interpolation guidée par la distance. Attention a modifier t_s1_ et t_s2_ si utilisée.
-//		double t = current_ss.dist_s1_obs_ / (current_ss.dist_s1_obs_ + current_ss.dist_s2_obs_);
 		double t = (2*current_ss.dist_s1_obs_ + current_ss.non_covered_length_) / (2*(current_ss.dist_s1_obs_ + current_ss.dist_s2_obs_ + current_ss.non_covered_length_));
 
 		double t_abs = current_ss.t_s1_ + (current_ss.t_s2_ - current_ss.t_s1_) * t;
@@ -1007,19 +635,11 @@ bool ompl::base::SafeMotionValidator::checkMotionSelfCCIndividualLinks(const Sta
 
 		stateSpace_->interpolate(s1, s2, t_abs, s_new);
 
-//		//STa temp
-//		nb_segment_eval ++;
-
 		double dist_snew_self = ssvc_->computeLinkMinSelfDist(s_new, current_ss.link_index_);
 
 		if (dist_snew_self <= 0)
-		{
-//			//STa temp
-//			output_file_1 << nb_segment_eval << "\n";
-//			output_file_1.close();
-
 			return false;
-		}
+
 		SubSegment ss1,ss2;
 
 		ss1.self_cc_ = current_ss.self_cc_;
@@ -1051,15 +671,10 @@ bool ompl::base::SafeMotionValidator::checkMotionSelfCCIndividualLinks(const Sta
 			flag = dist_travel[ss_queue.top().link_index_]*(ss_queue.top().t_s2_ - ss_queue.top().t_s1_) < travel_dist_limit;
 
 	}
-//	//STa temp
-//	output_file_1 << nb_segment_eval << "\n";
-//	output_file_1.close();
-
 	if (!ss_queue.empty() && ss_queue.top().non_covered_length_ > 0)
 		return false;
 	else
 		return true;
-
 }
 
 bool ompl::base::SafeMotionValidator::checkMotionSelfCCDiscrete(const State *s1, const State *s2, double valid_segment_factor) const
@@ -1179,13 +794,6 @@ bool ompl::base::SafeMotionValidator::checkMotionSelfCCDiscreteWS(const State *s
 
 bool ompl::base::SafeMotionValidator::checkMotionWorldIndividualLinks(const State *s1, const State *s2, double travel_dist_limit, bool fast_dist) const
 {
-	//STa temp
-//	std::cout << "Enter checkMotionWorldIndividualLinks \n";
-//	std::string homepath = getenv("HOME");
-//	std::ofstream output_file_1((homepath + "/checkMotionWorldIndividualLinks.txt").c_str(), std::ios::out | std::ios::app);
-//	int nb_segment_eval = 0;
-
-
 	std::priority_queue<SubSegment> ss_queue;
 
 	std::vector<std::vector<double> > dist_s1_obs, dist_s2_obs;
@@ -1199,13 +807,8 @@ bool ompl::base::SafeMotionValidator::checkMotionWorldIndividualLinks(const Stat
 			for (size_t j = 0; j < ssvc_->getNbObjects(); ++j)
 			{
 				if ((dist_s1_obs[i][j] <= 0) || (dist_s2_obs[i][j] <= 0) )
-				{
-//					//STa temp
-//					output_file_1 << nb_segment_eval << "\n";
-//					output_file_1.close();
-
 					return false; //Collision
-				}
+
 				if (dist_travel[i] - (dist_s1_obs[i][j] + dist_s2_obs[i][j]) > 0)
 				{
 					SubSegment ss;
@@ -1230,11 +833,7 @@ bool ompl::base::SafeMotionValidator::checkMotionWorldIndividualLinks(const Stat
 
 		State *s_new = si_->allocState();
 
-//		//STa temp
-//		nb_segment_eval++;
-
 		//STa : Interpolation guidée par la distance.
-//		double t = current_ss.dist_s1_obs_ / (current_ss.dist_s1_obs_ + current_ss.dist_s2_obs_);
 		double t = (2*current_ss.dist_s1_obs_ + current_ss.non_covered_length_) / (2*(current_ss.dist_s1_obs_ + current_ss.dist_s2_obs_ + current_ss.non_covered_length_));
 
 		double t_abs = current_ss.t_s1_ + (current_ss.t_s2_ - current_ss.t_s1_) * t;
@@ -1245,13 +844,8 @@ bool ompl::base::SafeMotionValidator::checkMotionWorldIndividualLinks(const Stat
 
 
 		if (dist_snew_obs <= 0)
-		{
-//			//STa temp
-//			output_file_1 << nb_segment_eval << "\n";
-//			output_file_1.close();
-
 			return false;
-		}
+
 		SubSegment ss1,ss2;
 
 		ss1.self_cc_ = current_ss.self_cc_;
@@ -1283,13 +877,8 @@ bool ompl::base::SafeMotionValidator::checkMotionWorldIndividualLinks(const Stat
 			flag = dist_travel[ss_queue.top().link_index_]*(ss_queue.top().t_s2_ - ss_queue.top().t_s1_) < travel_dist_limit;
 
 	}
-//	//STa temp
-//	output_file_1 << nb_segment_eval << "\n";
-//	output_file_1.close();
-
 	if (!ss_queue.empty() && ss_queue.top().non_covered_length_ > 0)
 		return false;
 	else
 		return true;
-
 }

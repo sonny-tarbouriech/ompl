@@ -32,7 +32,6 @@ namespace ompl
             {
             }
 
-            //virtual bool isValid(const State *state) const = 0;
             virtual bool isValidSelf(const ompl::base::State *state) const = 0;
             virtual void getCollidingLinksFCL(std::vector<std::string> &links, std::vector<double>& colliding_joint_values, const State *state) const = 0;
             virtual void computeInitialDistDataObstacle(const State *s1, const State *s2,  std::vector<std::vector<double> >& dist_s1_obs, std::vector<std::vector<double> >& dist_s2_obs, bool fast_dist) = 0;
@@ -47,7 +46,6 @@ namespace ompl
 
 
             virtual double manipulability(const State* /*state*/) const = 0;
-            virtual double manipulability(const State* s1, const State* s2) = 0;
 
             virtual double humanAwareness(const State* /*state*/) const = 0;
 

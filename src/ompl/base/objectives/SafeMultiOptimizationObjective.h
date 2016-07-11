@@ -35,14 +35,7 @@ namespace ompl
             virtual Cost motionCost(const State *s1, const State *s2) const;
             SafetyCost safeMotionCost(const State *s1, const State *s2) const;
             SafetyCost safeFastMotionCost(const State *s1, const State *s2, SafetyCost c1, SafetyCost c2) const;
-            Cost safeMotionMechanicalWork(const State *s1, const State *s2) const;
-            Cost safeMotionMechanicalWork(SafetyCost c1, SafetyCost c2) const;
-
-//            SafetyCost safeMotionCost(const State *s1, const State *s2, double min_obstacle_dist) const;
             SafetyCost safeMotionCostSymmetric(const State *s1, const State *s2, SafetyCost symCost) const;
-
-            //STa test
-            SafetyCost safeMotionCostTEST(const State *s1, const State *s2) const;
 
 
             virtual Cost combineCosts(Cost c1, Cost c2) const;
@@ -54,10 +47,7 @@ namespace ompl
             /** \brief Returns +infinity, since no path safety value can be considered worse than this. */
             virtual Cost infiniteCost() const;
 
-            SafetyCost safeMotionCostHeuristic(const State *s1, const State *s2) const;
-
-            void addObjective(const OptimizationObjectivePtr& objective,
-            		double weight, std::string name);
+            void addObjective(const OptimizationObjectivePtr& objective, double weight, std::string name);
 
             void NormalizeWeight();
 

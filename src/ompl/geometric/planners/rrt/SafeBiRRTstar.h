@@ -32,7 +32,7 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  *********************************************************************/
 
-/* Authors: Alejandro Perez, Sertac Karaman, Ryan Luna, Luis G. Torres, Ioan Sucan, Javier V Gomez */
+/* Authors: Sonny Tarbouriech */
 
 #ifndef OMPL_GEOMETRIC_PLANNERS_RRT_SAFEBIRRTSTAR_
 #define OMPL_GEOMETRIC_PLANNERS_RRT_SAFEBIRRTSTAR_
@@ -53,36 +53,13 @@
 #include <vector>
 #include <utility>
 
-//STa temp
-#include <fstream>
-
 namespace ompl
 {
 
     namespace geometric
     {
 
-        /**
-           @anchor gRRTstar
-           @par Short description
-           \ref gRRTstar "RRT*" (optimal RRT) is an asymptotically-optimal incremental
-           sampling-based motion planning algorithm. \ref gRRTstar "RRT*" algorithm is
-           guaranteed to converge to an optimal solution, while its
-           running time is guaranteed to be a constant factor of the
-           running time of the \ref gRRT "RRT". The notion of optimality is with
-           respect to the distance function defined on the state space
-           we are operating on. See ompl::base::Goal::setMaximumPathLength() for
-           how to set the maximally allowed path length to reach the goal.
-           If a solution path that is shorter than ompl::base::Goal::getMaximumPathLength() is
-           found, the algorithm terminates before the elapsed time.
-           @par External documentation
-           S. Karaman and E. Frazzoli, Sampling-based
-           Algorithms for Optimal Motion Planning, International Journal of Robotics
-           Research, Vol 30, No 7, 2011.
-           http://arxiv.org/abs/1105.1186
-         */
-
-        /** \brief Optimal Rapidly-exploring Random Trees */
+        /** \brief Optimal safety-oriented bi-directional Rapidly-exploring Random Trees */
         class SafeBiRRTstar : public base::Planner
         {
         public:
@@ -142,9 +119,6 @@ namespace ompl
                 bestSharedCost_ = bestSharedCost;
             }
 
-            //STa temp
-            size_t num_thread_;
-
             bool 						cforestEnabled_;
 
             unsigned int               rewireTest_ ;
@@ -162,18 +136,15 @@ namespace ompl
             {
             public:
                 /** \brief Constructor that allocates memory for the state. This constructor automatically allocates memory for \e state, \e cost, and \e incCost */
-                Motion(const base::SpaceInformationPtr &si) :
-                    state(si->allocState()),
-                    parent(NULL),
-                    root(NULL),
-                    isGoalTree(false),
-                    isStateShared(false),
-                    connectionIndex(0),
-                    otherTreeConnectionFailure(0)
-
-
-            {
-            }
+            	Motion(const base::SpaceInformationPtr &si) :
+            		state(si->allocState()),
+					parent(NULL),
+					root(NULL),
+					isGoalTree(false),
+					isStateShared(false),
+					connectionIndex(0)
+            	{
+            	}
 
 
                 ~Motion()
@@ -209,8 +180,10 @@ namespace ompl
 
                 }
 
+                /** \brief Computes the Cost To Go heuristically as the cost to come from start to motion plus
+                     the cost to go from motion to goal. If \e shortest is true, the estimated cost to come
+                     start-motion is given. Otherwise, this cost to come is the current motion cost. */
                 base::SafetyCost heuristicCost(const base::SafeMultiOptimizationObjective* safe_multi_opt,  const bool shortest = true) const;
-
 
 
                 /** \brief The state contained by the motion */
@@ -239,8 +212,6 @@ namespace ompl
 
 
                 size_t          connectionIndex;
-
-                size_t 			otherTreeConnectionFailure;
             };
 
             class treeConnection
@@ -260,15 +231,8 @@ namespace ompl
                 std::vector<const base::State*> getStatesToShare(boost::unordered_map<size_t, treeConnection*>& connection);
                 std::vector<base::SafetyCost> getIncCosts();
 
-                //STa temp
-                std::vector<const base::State*> getPath(std::vector<bool>& isGoalTree, std::vector<bool>& isStateShared);
-                std::vector<const base::State*> getStatesToShare(boost::unordered_map<size_t, treeConnection*> connection, ompl::base::SpaceInformationPtr  si, std::vector<bool>& isGoalTree, std::vector<bool>& isStateShared);
-
                 /** \brief Return the motion that most degrades the cost of the solution*/
                 void getWorstMotion(const base::SafeMultiOptimizationObjective* safe_multi_opt, Motion*& worstMotion, bool& isStartTree);
-
-                void printMotionIncCost(std::ostream &out = std::cout) const;
-
 
                 Motion* startTreeMotion;
                 Motion* goalTreeMotion;
@@ -301,10 +265,7 @@ namespace ompl
             /** \brief Compute distance between motions (actually distance between contained states) */
             double distanceFunction(const Motion *a, const Motion *b) const
             {
-                //            	if (a->has_goal_state && b->has_goal_state)
-                //            	{
-                //            		return si_->getStateSpace()->getMaximumExtent();
-                //            	}
+
                 return si_->distance(a->state, b->state);
             }
 
@@ -313,14 +274,6 @@ namespace ompl
 
             /** \brief Updates the cost of the children of this node if the cost up to this node has changed */
             void updateChildCosts(Motion *m);
-
-
-
-            /** \brief Computes the Cost To Go heuristically as the cost to come from start to motion plus
-                 the cost to go from motion to goal. If \e shortest is true, the estimated cost to come
-                 start-motion is given. Otherwise, this cost to come is the current motion cost. */
-            base::SafetyCost heuristicCost(const base::State* state, const base::SafetyCost state_cost , const bool shortest = true) const;
-//            base::SafetyCost heuristicCost(const Motion *m1, const Motion *m2 , const base::SafetyCost motionCost, const bool shortest = true) const;
 
             enum GrowResult
             {
@@ -412,23 +365,22 @@ namespace ompl
 
             struct PruneScratchSpace { std::vector<Motion*> newTree, toBePruned, candidates; } pruneScratchSpace_;
 
+            //STa
+            base::SafeMotionValidator* 			    safe_motion_validator_;
+            base::SafeMultiOptimizationObjective* 	safe_multi_opt_;
+            base::SafeStateValidityChecker*		    ssvc_;
+            bool 									fast_dist_;
+            double 									travel_dist_limit_;
+            double 									valid_segment_factor_;
+
             //////////////////////////////
             // Planner progress properties
             /** \brief Number of iterations the algorithm performed */
             unsigned int                                   iterations_;
             /** \brief Best cost found so far by algorithm */
             base::SafetyCost                                   bestCost_;
-            const base::SafetyCost*                                   bestSharedCost_;
-            size_t 												bestIndex_;
-
-            //STa
-            base::SafeMotionValidator* 			    safe_motion_validator_;
-            base::SafeMultiOptimizationObjective* 	    safe_multi_opt_;
-            base::SafeStateValidityChecker*		    ssvc_;
-            bool 									fast_dist_;
-            double 									travel_dist_limit_;
-            double 									valid_segment_factor_;
-
+            const base::SafetyCost*                            bestSharedCost_;
+            size_t 											   bestIndex_;
 
             boost::unordered_map<size_t, treeConnection*> 			connection_;
             size_t treeConnectionIndex_;
@@ -442,14 +394,6 @@ namespace ompl
             /// \brief The range at which the algorithm will attempt to connect
             /// the two trees.
             double  connectionRange_;
-
-
-            //STa temp
-            std::ofstream output_file_;
-            std::stringstream file_name_;
-
-
-
         };
     }
 }
