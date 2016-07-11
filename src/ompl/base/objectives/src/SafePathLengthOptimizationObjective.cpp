@@ -1,13 +1,13 @@
 #include "ompl/base/objectives/SafePathLengthOptimizationObjective.h"
 
-//STa test
-#include <fstream>
-#include <ompl/util/Time.h>
-
 ompl::base::SafePathLengthOptimizationObjective::
 SafePathLengthOptimizationObjective(const SpaceInformationPtr &si) :
-SafePathLengthOptimizationObjective(si, NULL, NULL)
+ompl::base::OptimizationObjective(si),
+goal_(NULL),
+start_state_(NULL)
 {
+	isMinMaxObjective_ = false;
+	description_ = "Safe Path Length";
 }
 
 ompl::base::SafePathLengthOptimizationObjective::
@@ -78,22 +78,6 @@ ompl::base::SafePathLengthOptimizationObjective::motionCost(const State *s1, con
 ompl::base::Cost
 ompl::base::SafePathLengthOptimizationObjective::motionCost(const State *s1, const State *s2, double& motion_length, double& dist_start_to_motion, double& dist_end_to_goal) const
 {
-	//	//STa test path_length
-	//	std::string homepath = getenv("HOME");
-	//	std::ofstream output_file((homepath + "/path_length_time.txt").c_str(), std::ios::out | std::ios::app);
-	//	std::ofstream output_file_2((homepath + "/path_length_result.txt").c_str(), std::ios::out | std::ios::app);
-	//	ompl::time::point init = ompl::time::now();
-	//	motion_length = si_->distance(s1, s2);
-	//	dist_start_to_goal = base::goalRegionCostToGo(s1, *goal_).value();
-	//	dist_end_to_goal = base::goalRegionCostToGo(s2, *goal_).value();
-	//	double d_cost = dist_start_to_goal/(motion_length + dist_end_to_goal);
-	//	if (d_cost > 1)
-	//		d_cost=1;
-	//	ompl::time::duration dur = ompl::time::now() - init;
-	//	output_file << ompl::time::seconds(dur) << "\n";
-	//	output_file_2 << d_cost << "\n";
-	//	return Cost(d_cost);
-
 	motion_length = si_->distance(s1, s2);
 	dist_start_to_motion = si_->distance(*start_state_, s1);
 	dist_end_to_goal = base::goalRegionCostToGo(s2, *goal_).value();
@@ -101,7 +85,6 @@ ompl::base::SafePathLengthOptimizationObjective::motionCost(const State *s1, con
 	double d_cost = (dist_start_to_motion + motion_length + dist_end_to_goal);
 
 	return Cost(d_cost);
-
 }
 
 ompl::base::Cost

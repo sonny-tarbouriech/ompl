@@ -32,7 +32,7 @@
 *  POSSIBILITY OF SUCH DAMAGE.
 *********************************************************************/
 
-/* Author: Luis G. Torres */
+/* Author: Sonny Tarbouriech */
 
 #ifndef OMPL_BASE_OBJECTIVES_MANIPULABILITY_OBJECTIVE_
 #define OMPL_BASE_OBJECTIVES_MANIPULABILITY_OBJECTIVE_

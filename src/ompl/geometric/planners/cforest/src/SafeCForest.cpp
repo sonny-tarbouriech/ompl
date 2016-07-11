@@ -32,7 +32,7 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  *********************************************************************/
 
-/* Authors: Javier V. Gómez, Ioan Sucan, Mark Moll */
+/* Authors: Sonny Tarbouriech */
 
 #include "ompl/geometric/planners/cforest/SafeCForest.h"
 #include "ompl/geometric/planners/rrt/SafeRRTstar.h"
@@ -43,10 +43,10 @@
 #include "ompl/base/objectives/JointLimitsObjective.h"
 #include "ompl/base/objectives/SafePathLengthOptimizationObjective.h"
 
-//STa temp
-#include <fstream>
 
-ompl::geometric::SafeCForest::SafeCForest(const base::SpaceInformationPtr &si) : base::Planner(si, "SafeCForest")
+ompl::geometric::SafeCForest::SafeCForest(const base::SpaceInformationPtr &si) :
+base::Planner(si, "SafeCForest"),
+cforestEnabled_(true)
 {
 	specs_.optimizingPaths = true;
 	specs_.multithreaded = true;
@@ -54,11 +54,9 @@ ompl::geometric::SafeCForest::SafeCForest(const base::SpaceInformationPtr &si) :
 	numPathsShared_ = 0;
 	numStatesShared_ = 0;
 
-	prune_ = false;
+	prune_ = false; //Unused
 
-//	numThreads_ = std::max(boost::thread::hardware_concurrency(), 2u);
-	//STa temp
-		numThreads_ = 2;
+	numThreads_ = std::max(boost::thread::hardware_concurrency(), 2u);
 
 	Planner::declareParam<bool>("prune", this, &SafeCForest::setPrune, &SafeCForest::getPrune, "0,1");
 	Planner::declareParam<unsigned int>("num_threads", this, &SafeCForest::setNumThreads, &SafeCForest::getNumThreads, "0:64");
@@ -168,10 +166,9 @@ void ompl::geometric::SafeCForest::setup()
 	        //STa
 	        if (planners_[i]->getName().compare("SafeBiRRTstar") == 0)
 	        {
-	                static_cast<SafeBiRRTstar*>(planners_[i].get())->setBestSharedCost(&bestCost_);
-
-	                //STa temp
-	                static_cast<SafeBiRRTstar*>(planners_[i].get())->num_thread_ = i;
+	                static_cast<SafeBiRRTstar*>(planners_[i].get())->cforestEnabled_ = cforestEnabled_;
+	                if (cforestEnabled_)
+	                	 static_cast<SafeBiRRTstar*>(planners_[i].get())->setBestSharedCost(&bestCost_);
 	        }
 		}
 		//STa
@@ -228,13 +225,23 @@ ompl::base::PlannerStatus ompl::geometric::SafeCForest::solve(const base::Planne
 	getProblemDefinition()->setSafeIntermediateSolutionCallback(prevSolutionCallback);
 	OMPL_INFORM("Solution found in %f seconds", time::seconds(time::now() - start));
 
-//	//STa test
-//	std::string homepath = getenv("HOME");
-//	std::ofstream output_file((homepath + "/safe_cforest.txt").c_str(), std::ios::out | std::ios::app);
-//	output_file  << bestCost_ << "\n";
-//	output_file.close();
-
-
+	//STa: Keep only the best solution
+    if (pdef_->hasSolution())
+    {
+    		std::vector<ompl::base::PlannerSolution> solutions = pdef_->getSolutions();
+    		if (solutions.size() > 1)
+    		{
+    			ompl::base::PlannerSolution bestSolution = solutions[0];
+    			for (size_t i=1; i < solutions.size(); ++i)
+    				if (safe_multi_opt_->isSafetyCostBetterThan(solutions[i].safetyCost_, bestSolution.safetyCost_))
+    					bestSolution = solutions[i];
+    			pdef_->clearSolutionPaths();
+    			pdef_->addSolutionPath(bestSolution);
+    			bestCost_ =  bestSolution.safetyCost_;
+    		}
+    }
+	//STa
+	std::cout << "Final best cost: " << bestCost_ << "\n";
 
 	return base::PlannerStatus(pdef_->hasSolution(), pdef_->hasApproximateSolution());
 }
@@ -256,8 +263,6 @@ std::string ompl::geometric::SafeCForest::getNumStatesShared() const
 
 void ompl::geometric::SafeCForest::newSolutionFound(const base::Planner *planner, const std::vector<const base::State *> &states, const base::SafetyCost cost)
 {
-//	std::cout << "Enter SafeCForest::newSolutionFound \n";
-
 	bool change = false;
 	std::vector<const base::State *> statesToShare;
 	newSolutionFoundMutex_.lock();
@@ -267,27 +272,17 @@ void ompl::geometric::SafeCForest::newSolutionFound(const base::Planner *planner
 		bestCost_ = cost;
 		change = true;
 
-		//STa temp
-		std::cout << "bestCost_ = " << bestCost_ << "\n";
+		//STa
+		std::cout << "Current best cost: " << bestCost_ << "\n";
 
 		// Filtering the states to add only those not already added.
 		statesToShare.reserve(states.size());
 		for (std::vector<const base::State *>::const_iterator st = states.begin(); st != states.end(); ++st)
 		{
 
-//		    //STa temp
-//		    std::cout << "SafeCForest::newSolutionFound : \n";
-//            std::cout << "planner thread " << static_cast<const SafeBiRRTstar*>(planner)->num_thread_ <<" \n";
-//		    si_->getStateSpace()->printState(*st, std::cout);
-
-
-//		    //STa : When used with SafeBiRRTstar, no need to filter as the planner already did it.
-//			if (statesShared_.find(*st) == statesShared_.end())
-//			{
-				statesShared_.insert(*st);
-				statesToShare.push_back(*st);
-				++numStatesShared_;
-//			}
+			statesShared_.insert(*st);
+			statesToShare.push_back(*st);
+			++numStatesShared_;
 		}
 	}
 	newSolutionFoundMutex_.unlock();
@@ -302,9 +297,6 @@ void ompl::geometric::SafeCForest::newSolutionFound(const base::Planner *planner
 		if (cfplanner != planner)
 		    sampler->setStatesToSample(statesToShare);
 	}
-
-//	std::cout << "Exit SafeCForest::newSolutionFound \n \n";
-
 }
 
 void ompl::geometric::SafeCForest::solve(base::Planner *planner, const base::PlannerTerminationCondition &ptc)

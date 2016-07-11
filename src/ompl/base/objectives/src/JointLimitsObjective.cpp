@@ -3,14 +3,18 @@
 #include "ompl/geometric/PathGeometric.h"
 #include <limits>
 
-//STa test
-#include <fstream>
-#include <ompl/util/Time.h>
-
 ompl::base::JointLimitsObjective::
 JointLimitsObjective(const SpaceInformationPtr &si) :
-JointLimitsObjective(si, identityCost())
+OptimizationObjective(si)
 {
+    isMinMaxObjective_ = true;
+	this->setCostThreshold(identityCost());
+
+	ssvc_ = dynamic_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
+	if (!ssvc_)
+		throw Exception("JointLimitsObjective requires SafeStateValidityChecker to work");
+
+	ssvc_->getJointLimits(q_min_,q_max_);
 }
 
 
@@ -21,11 +25,11 @@ OptimizationObjective(si)
     isMinMaxObjective_ = true;
 	this->setCostThreshold(cost_threshold);
 
-	//TODO : return error if si_ has not a SafeStateValidityChecker
 	ssvc_ = dynamic_cast<ompl::base::SafeStateValidityChecker*>(si_->getStateValidityChecker().get());
+	if (!ssvc_)
+		throw Exception("JointLimitsObjective requires SafeStateValidityChecker to work");
 
 	ssvc_->getJointLimits(q_min_,q_max_);
-
 }
 
 bool ompl::base::JointLimitsObjective::isSymmetric() const
@@ -60,25 +64,6 @@ bool ompl::base::JointLimitsObjective::isCostBetterThan(Cost c1, Cost c2) const
 
 ompl::base::Cost ompl::base::JointLimitsObjective::motionCost(const State *s1, const State *s2) const
 {
-
-//	//STa test joint_limit
-//	std::string homepath = getenv("HOME");
-//	std::ofstream output_file((homepath + "/joint_limit_time.txt").c_str(), std::ios::out | std::ios::app);
-//	std::ofstream output_file_2((homepath + "/joint_limit_result.txt").c_str(), std::ios::out | std::ios::app);
-//	ompl::time::point init = ompl::time::now();
-//	double c1 = std::min(stateCost(s1, 0.5).value(), stateCost(s2, 0.5).value());
-//	ompl::time::duration dur = ompl::time::now() - init;
-//	double c2 = std::min(stateCost(s1, 0.7).value(), stateCost(s2, 0.7).value());
-//	double c3 = std::min(stateCost(s1, 0.8).value(), stateCost(s2, 0.8).value());
-//	double c4 = std::min(stateCost(s1, 0.9).value(), stateCost(s2, 0.9).value());
-//	double c5 = std::min(stateCost(s1, 0.95).value(), stateCost(s2, 0.95).value());
-//	output_file << ompl::time::seconds(dur) << "\n";
-//	output_file_2 << c1 << "  " << c2 << "  " << c3 << "  " << c4 << "  " << c5  << "\n";
-//	output_file.close();
-//	output_file_2.close();
-//	return Cost(c3);
-
-
 	return combineCosts(stateCost(s1), stateCost(s2));
 }
 

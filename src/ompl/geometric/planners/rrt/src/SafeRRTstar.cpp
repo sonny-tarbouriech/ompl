@@ -32,7 +32,7 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  *********************************************************************/
 
-/* Authors: Alejandro Perez, Sertac Karaman, Ryan Luna, Luis G. Torres, Ioan Sucan, Javier V Gomez */
+/* Authors: Sonny Tarbouriech */
 
 #include "ompl/geometric/planners/rrt/SafeRRTstar.h"
 #include "ompl/base/goals/GoalSampleableRegion.h"
@@ -49,11 +49,10 @@
 #include "ompl/base/objectives/ManipulabilityObjective.h"
 #include "ompl/base/objectives/JointLimitsObjective.h"
 #include "ompl/base/objectives/SafePathLengthOptimizationObjective.h"
+#include "ompl/base/objectives/HumanAwarenessObjective.h"
 #include "ompl/base/goals/GoalLazySamples.h"
 #include <boost/thread.hpp>
 
-//STa temp
-#include <fstream>
 
 ompl::geometric::SafeRRTstar::SafeRRTstar(const base::SpaceInformationPtr &si) :
 base::Planner(si, "SafeRRTstar"),
@@ -72,7 +71,6 @@ improveSolutionBias_(0.05)
 	specs_.canReportIntermediateSolutions = true;
 
 	//STa
-	delayCC_ = true;
 	fast_dist_ = true;
 	travel_dist_limit_=0.01;
 
@@ -126,17 +124,19 @@ void ompl::geometric::SafeRRTstar::setup()
 
 void ompl::geometric::SafeRRTstar::getOptimalSafetyObjective()
 {
-
-	safe_multi_opt_ = new ompl::base::SafeMultiOptimizationObjective(si_);
-	ompl::base::OptimizationObjectivePtr lengthObj(new ompl::base::SafePathLengthOptimizationObjective(si_, &safe_multi_opt_->getStart() ,&safe_multi_opt_->getGoal()));
-	ompl::base::OptimizationObjectivePtr safetyObj(new ompl::base::SafetyObjective(si_, safe_motion_validator_, fast_dist_, travel_dist_limit_));
-	ompl::base::OptimizationObjectivePtr jointLimitsObj(new ompl::base::JointLimitsObjective(si_));
-	ompl::base::OptimizationObjectivePtr manipulabilityObj(new ompl::base::ManipulabilityObjective(si_));
-	safe_multi_opt_->addObjective(lengthObj, 1, "length");
-//	safe_multi_opt_->addObjective(safetyObj, 10, "safety");
-//	safe_multi_opt_->addObjective(jointLimitsObj, 0.1, "joint");
-//	safe_multi_opt_->addObjective(manipulabilityObj, 0.1, "manipulability");
-	safe_multi_opt_->NormalizeWeight();
+    safe_multi_opt_ = new ompl::base::SafeMultiOptimizationObjective(si_);
+    ompl::base::OptimizationObjectivePtr lengthObj(new ompl::base::SafePathLengthOptimizationObjective(si_, &safe_multi_opt_->getStart() ,&safe_multi_opt_->getGoal()));
+    ompl::base::OptimizationObjectivePtr safetyObj(new ompl::base::SafetyObjective(si_, safe_motion_validator_, fast_dist_, travel_dist_limit_));
+    ompl::base::OptimizationObjectivePtr jointLimitsObj(new ompl::base::JointLimitsObjective(si_));
+    ompl::base::OptimizationObjectivePtr manipulabilityObj(new ompl::base::ManipulabilityObjective(si_));
+    ompl::base::OptimizationObjectivePtr humanAwarenessObj(new ompl::base::HumanAwarenessObjective(si_));
+    safe_multi_opt_->addObjective(lengthObj, 1, "length");
+    safe_multi_opt_->addObjective(safetyObj, 1, "safety");
+    safe_multi_opt_->addObjective(jointLimitsObj, 1, "joint");
+    safe_multi_opt_->addObjective(manipulabilityObj, 1, "manipulability");
+    if (ssvc_->humanPresence())
+        safe_multi_opt_->addObjective(humanAwarenessObj, 1, "awareness");
+    safe_multi_opt_->NormalizeWeight();
 
 	//Safe RRT*
 	opt_ = ompl::base::OptimizationObjectivePtr(safe_multi_opt_);
@@ -163,21 +163,9 @@ void ompl::geometric::SafeRRTstar::clear()
 
 ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::PlannerTerminationCondition &ptc)
 {
-	//STa temp
-	//std::cout << "Enter solveSafeRRTstar \n";
-
-//	//STa test
-//	std::string homepath = getenv("HOME");
-//	std::ofstream output_file((homepath + "/saferrtstar.txt").c_str(), std::ios::out | std::ios::app);
-
 	checkValidity();
 	base::Goal                  *goal   = pdef_->getGoal().get();
 	base::GoalSampleableRegion  *goal_s = dynamic_cast<base::GoalSampleableRegion*>(goal);
-
-
-	//STa test
-	ompl::time::point init = ompl::time::now();
-	ompl::time::duration dur_first_sol;
 
 	while (!goal_s->canSample() && ptc == false)
 	{
@@ -200,9 +188,6 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 
 	if (nn_->size() == 0)
 	{
-		//STa temp
-		//std::cout << "Exit solveSafeRRTstar \n";
-
 		OMPL_ERROR("%s: There are no valid initial states!", getName().c_str());
 		return base::PlannerStatus::INVALID_START;
 	}
@@ -220,11 +205,6 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 	const base::ReportSafeIntermediateSolutionFn safeIntermediateSolutionCallback = pdef_->getSafeIntermediateSolutionCallback();
 
 	Motion *solution       = lastGoalMotion_;
-
-	// \TODO Make this variable unnecessary, or at least have it
-	// persist across solve runs
-	//STa
-	//	base::SafetyCost bestCost = safe_multi_opt_->safeInfiniteCost();
 
 	bestCost_ = safe_multi_opt_->safeInfiniteCost();
 
@@ -261,44 +241,14 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 
 	while (ptc == false)
 	{
-		//std::cout << "Flag JTM 0 \n";
-
 		iterations_++;
 
 		// sample random state (with goal biasing)
 		// Goal samples are only sampled until maxSampleCount() goals are in the tree, to prohibit duplicate goal states.
 		if (goal_s && goalMotions_.size() < goal_s->maxSampleCount() && rng_.uniform01() < goalBias_ && goal_s->canSample())
-		{
 			goal_s->sampleGoal(rstate);
-		}
-		//		else if (solution && rng_.uniform01() < improveSolutionBias_)
-		//		{
-		//			Motion* worst_motion = getWorstMotion(solution);
-		//			if (worst_motion == NULL)
-		//				continue;
-		//			double radius = si_->getStateSpace()->distance(worst_motion->state, worst_motion->parent->state)/2;
-		//			base::State* worst_state = si_->allocState();
-		//			si_->getStateSpace()->interpolate(worst_motion->state, worst_motion->parent->state,0.5,worst_state);
-		//			size_t attempt = 0;
-		//			base::SafetyCost state_cost;
-		//			bool worse_cost;
-		//			do
-		//			{
-		//				sampler_->sampleUniformNear(rstate, worst_state, radius);
-		//				state_cost = safe_multi_opt_->safeStateCost(rstate);
-		//				attempt++;
-		//				worse_cost = safe_multi_opt_->isSafetyCostBetterThan(bestCost_, state_cost);
-		//			} while(worse_cost && (attempt<5));
-		//
-		//			if (worse_cost)
-		//				continue;
-		//		}
 		else
-		{
 			sampler_->sampleUniform(rstate);
-		}
-		//std::cout << "Flag JTM 0_1 \n";
-
 
 		// find closest state in the tree
 		Motion *nmotion = nn_->nearest(rmotion);
@@ -339,7 +289,6 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 		rewireTest += nbh.size();
 
 		//STa : Erase goal nbh if the current sample is also a goal state.
-		//TODO : Modify nearest fct to neglect the joining of two goals
 		if (motion->has_goal_state)
 		{
 			for (std::vector<Motion*>::iterator it = nbh.begin() ; it != nbh.end();)
@@ -383,10 +332,6 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 			incCosts[i] = safe_multi_opt_->safeFastMotionCost(nbh[i]->state, motion->state ,nbh[i]->stateCost, motion->stateCost);
 			costs[i] = safe_multi_opt_->safeCombineCosts(nbh[i]->cost, incCosts[i]);
 			exactCost[i] = false;
-
-//			std::cout << "nbh[i]->cost = " << nbh[i]->cost << "\n";
-//			std::cout << "incCosts[i] = " << incCosts[i] << "\n";
-//			std::cout << "costs[i] = " << costs[i] << "\n \n";
 		}
 
 		// sort the nodes
@@ -441,22 +386,16 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 
 		if (prune_)
 		{
-			//std::cout << "Flag prune 1 \n";
 			if (safe_multi_opt_->isSafetyCostBetterThan(costToGo(motion, false), bestCost_))
 			{
-				//std::cout << "Flag prune 1_1 \n";
 				nn_->add(motion);
 				motion->parent->children.push_back(motion);
 			}
 			else // If the new motion does not improve the best cost it is ignored.
 			{
-				//std::cout << "Flag prune 1_2 \n";
 				--statesGenerated;
-				//std::cout << "Flag prune 1_2_1 \n";
 				si_->freeState(motion->state);
-				//std::cout << "Flag prune 1_2_2 \n";
 				delete motion;
-				//std::cout << "Flag prune 1_2_3 \n";
 				continue;
 			}
 		}
@@ -474,8 +413,6 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 			{
 				if ((nbh[i] != motion->parent) && (nbh[i]->parent != NULL))
 				{
-
-					//STa : All objectives are symmetric with the exception of Path length obj
 					// Fast cost
 					base::SafetyCost nbhIncCost = safe_multi_opt_->safeMotionCostSymmetric(motion->state, nbh[i]->state, incCosts[i]);
 					base::SafetyCost nbhNewCost = safe_multi_opt_->safeCombineCosts(motion->cost, nbhIncCost);
@@ -529,10 +466,6 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 		double distanceFromGoal;
 		if (goal->isSatisfied(motion->state, &distanceFromGoal))
 		{
-			//STa test
-			if (goalMotions_.empty())
-				dur_first_sol= ompl::time::now() - init;
-
 			goalMotions_.push_back(motion);
 			checkForSolution = true;
 		}
@@ -543,33 +476,13 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 			bool updatedSolution = false;
 			for (size_t i = 0; i < goalMotions_.size(); ++i)
 			{
-				//std::cout << "Flag JTM 2_2 \n";
-
-				//STa
-				//				if (goalMotions_[i]->cost.getIndividualCostSize() !=  safe_multi_opt_->getObjectiveCount())
-				//				{
-				//					goalMotions_.erase(goalMotions_.begin() + i);
-				//					--i;
-				//					continue;
-				//				}
-
 				if (safe_multi_opt_->isSafetyCostBetterThan(goalMotions_[i]->cost, bestCost_))
 				{
 					bestCost_ = goalMotions_[i]->cost;
 					updatedSolution = true;
-
-//					//STa temp
-					std::cout << "bestCost_ = " << bestCost_ << "\n";
-//					ompl::time::duration dur = ompl::time::now() - init;
-//					output_file <<  bestCost_ << ompl::time::seconds(dur) << "\n";
-
 				}
 
-				//std::cout << "Flag JTM 2_4 \n";
-
 				sufficientlyShort = safe_multi_opt_->isSafetySatisfied(goalMotions_[i]->cost);
-
-				//std::cout << "Flag JTM 2_5 \n";
 
 				if (sufficientlyShort)
 				{
@@ -579,64 +492,34 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 				else if (!solution ||
 						safe_multi_opt_->isSafetyCostBetterThan(goalMotions_[i]->cost,solution->cost))
 				{
-					//std::cout << "Flag JTM 2_6 \n";
 					solution = goalMotions_[i];
 					updatedSolution = true;
 				}
 
 			}
-			//std::cout << "FLAG0 \n";
 
 			if (updatedSolution)
 			{
-				//std::cout << "FLAG0_1 \n";
 				if (prune_)
 				{
 					int n = pruneTree(bestCost_);
 					statesGenerated -= n;
-
-					//STa
-//					if (goalMotions_.size() == 0)
-//						continue;
 				}
 
 				if (safeIntermediateSolutionCallback)
 				{
-					//std::cout << "FLAG1 \n";
 					std::vector<const base::State *> spath;
 					Motion *intermediate_solution = solution->parent; // Do not include goal state to simplify code.
-					//std::cout << "intermediate_solution cost size = " << solution->cost.getIndividualCostSize() << "\n";
 
 					while (intermediate_solution->parent != 0) // Do not include the start state.
 					{
-						//std::cout << "FLAG2 \n";
 						spath.push_back(intermediate_solution->state);
-						//std::cout << "FLAG2_1 \n";
 						intermediate_solution = intermediate_solution->parent;
-						//std::cout << "FLAG2_2 \n";
 					}
-
-					//STa temp
-					////std::cout << "Before safeIntermediateSolutionCallback \n";
 					safeIntermediateSolutionCallback(this, spath, bestCost_);
-					//STa temp
-					//std::cout << "After safeIntermediateSolutionCallback \n";
 				}
-				//std::cout << "FLAG3 \n";
 			}
 		}
-
-		//std::cout << "Flag JTM 3 \n";
-
-		//STa : forbid approximate solution
-		// Checking for approximate solution (closest state found to the goal)
-//		if (goalMotions_.size() == 0 && distanceFromGoal < approximatedist)
-//		{
-//			approximation = motion;
-//			approximatedist = distanceFromGoal;
-//		}
-		//        }
-
 		// terminate if a sufficient solution is found
 		if (solution && sufficientlyShort)
 			break;
@@ -663,14 +546,8 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 		// set the solution path
 		PathGeometric *geoPath = new PathGeometric(si_);
 		for (int i = mpath.size() - 1 ; i >= 0 ; --i)
-		{
 			geoPath->append(mpath[i]->state);
 
-			//            //STa temp
-			//            //std::cout << "Solution path " << i <<" cost = " <<  mpath[i]->cost << "\n";
-			//            //std::cout << "Solution path " << i <<" incCost = " <<  mpath[i]->incCost << "\n";
-
-		}
 		base::PathPtr path(geoPath);
 		// Add the solution path.
 		base::PlannerSolution psol(path);
@@ -682,73 +559,13 @@ ompl::base::PlannerStatus ompl::geometric::SafeRRTstar::solve(const base::Planne
 		pdef_->addSolutionPath(psol);
 
 		addedSolution = true;
-
-
-//		base::SafetyCost incCost, prevCost, curCost;
-//		prevCost = safe_multi_opt_->safeStateCost(mpath[mpath.size() - 1]->state);
-//		for (int i = mpath.size() - 1 ; i > 0 ; --i)
-//		{
-//			incCost = safe_multi_opt_->safeMotionCostTEST(mpath[i]->state, mpath[i-1]->state);
-//			curCost = safe_multi_opt_->safeCombineCosts(prevCost, incCost);
-//			prevCost = curCost;
-//		}
-//		if(base::goalRegionCostToGo(startMotion_->state, pdef_->getGoal().get()).value() > 0.01)
-//		{
-//			std::string homepath = getenv("HOME");
-//			std::ofstream output_file((homepath + "/safe_rrt_star.txt").c_str(), std::ios::out | std::ios::app);
-//			if (approximate)
-//			{
-//				//STa test
-//				output_file << std::setw(10) << 0 << "\t";
-//				for (size_t i=0; i < curCost.getIndividualCostSize(); ++i)
-//				{
-//					output_file << std::setw(10) << 0 << "\t";
-//				}
-//				output_file << std::setw(10) << 0 << "\t";
-//				output_file << std::setw(10) << statesGenerated << "\t";
-//				output_file << std::setw(10) << rewireTest << "\n";
-//				output_file.close();
-//			}
-//			else
-//			{
-//				output_file << std::setw(10) << 1 << "\t";
-//				for (size_t i=0; i < curCost.getIndividualCostSize(); ++i)
-//				{
-//					output_file << std::setw(10) << curCost.getIndividualCost(i).value() << "\t";
-//				}
-//				output_file << std::setw(10) << ompl::time::seconds(dur_first_sol) << "\t";
-//				output_file << std::setw(10) << statesGenerated << "\t";
-//				output_file << std::setw(10) << rewireTest << "\n";
-//				output_file.close();
-//			}
-//		}
-
-
 	}
-
-//	//STa temp
-//	output_file << "\n";
-//	output_file.close();
-
-
 	si_->freeState(xstate);
 	if (rmotion->state)
 		si_->freeState(rmotion->state);
 	delete rmotion;
 
-	//    //STa test planner
-	//    std::string homepath = getenv("HOME");
-	//    std::ofstream output_file((homepath + "/safe_rrt_star.txt").c_str(), std::ios::out | std::ios::app);
-	//    if (output_file)
-	//    {
-	//    	output_file << statesGenerated << "  " << rewireTest << "\n";
-	//    	output_file.close();
-	//    }
-
 	OMPL_INFORM("%s: Created %u new states. Checked %u rewire options. %u goal states in tree.", getName().c_str(), statesGenerated, rewireTest, goalMotions_.size());
-
-	//STa temp
-	//std::cout << "Exit solveSafeRRTstar \n";
 
 	return base::PlannerStatus(addedSolution, approximate);
 }
@@ -795,12 +612,7 @@ ompl::geometric::SafeRRTstar::Motion* ompl::geometric::SafeRRTstar::getWorstMoti
 		{
 			cost_improvement = cost_temp;
 			worst_motion = mpath[i-1];
-			//			worst_motion = mpath[i];
 		}
-
-		//STa temp
-		//		//std::cout << "temp cost = " << cost_temp << "\n";
-		//		//std::cout << "cost_improvement = " << cost_improvement << "\n \n";
 	}
 
 	return worst_motion;
@@ -844,16 +656,6 @@ void ompl::geometric::SafeRRTstar::getPlannerData(base::PlannerData &data) const
 
 int ompl::geometric::SafeRRTstar::pruneTree(const base::SafetyCost pruneTreeCost)
 {
-	//STa temp
-	//std::cout << "Enter SafeRRTstar::pruneTree \n";
-	//std::cout << "pruneTreeCost : ";
-//	for (size_t j=0; j< pruneTreeCost.getIndividualCostSize(); ++j)
-//	{
-//		std::cout << pruneTreeCost.getIndividualCost(j).value() << "; ";
-//	}
-//	std::cout << "\n";
-
-
 	const int tree_size = nn_->size();
 	pruneScratchSpace_.newTree.reserve(tree_size);
 	pruneScratchSpace_.newTree.clear();
@@ -868,16 +670,6 @@ int ompl::geometric::SafeRRTstar::pruneTree(const base::SafetyCost pruneTreeCost
 		if (safe_multi_opt_->isSafetyCostBetterThan(pruneTreeCost, costToGo(candidate)))
 		{
 			pruneScratchSpace_.toBePruned.push_back(candidate);
-
-			//STa temp
-//			std::cout << "toBePruned : ";
-//			base::SafetyCost c = costToGo(candidate);
-//			for (size_t j=0; j< c.getIndividualCostSize(); ++j)
-//			{
-//				std::cout << c.getIndividualCost(j).value() << "; ";
-//			}
-//			std::cout << "\n";
-
 		}
 		else
 		{
@@ -897,12 +689,8 @@ int ompl::geometric::SafeRRTstar::pruneTree(const base::SafetyCost pruneTreeCost
 		nn_->clear();
 		nn_->add(pruneScratchSpace_.newTree);
 
-		//STa temp
-		//std::cout << "Exit SafeRRTstar::pruneTree \n";
 		return (tree_size - pruneScratchSpace_.newTree.size());
 	}
-	//STa temp
-	//std::cout << "Exit SafeRRTstar::pruneTree \n";
 	return 0;
 }
 
@@ -924,18 +712,9 @@ void ompl::geometric::SafeRRTstar::deleteBranch(Motion *motion)
 
 		//STa
 		if (mto_delete->has_goal_state)
-		{
 			for (size_t i = 0; i < goalMotions_.size(); ++i)
-			{
 				if (mto_delete == goalMotions_[i])
-				{
-					//std::cout<< "size before = " <<  goalMotions_.size() << "\n";
 					goalMotions_.erase(goalMotions_.begin() + i);
-					//std::cout<< "size after = " <<  goalMotions_.size() << "\n";
-
-				}
-			}
-		}
 
 		si_->freeState(mto_delete->state);
 		delete mto_delete;
@@ -949,29 +728,6 @@ ompl::base::SafetyCost ompl::geometric::SafeRRTstar::costToGo(const Motion *moti
 	{
 		costToCome = motion->stateCost;
 		costToGo = safe_multi_opt_->safeCostToGo(motion->state, costToCome);
-
-//		//STa temp
-//		std::cout << "costToCome : ";
-//		for (size_t j=0; j< costToCome.getIndividualCostSize(); ++j)
-//		{
-//			std::cout << costToCome.getIndividualCost(j).value() << "; ";
-//		}
-//		std::cout << "\n";
-//		std::cout << "costToGo : ";
-//		for (size_t j=0; j< costToGo.getIndividualCostSize(); ++j)
-//		{
-//			std::cout << costToGo.getIndividualCost(j).value() << "; ";
-//		}
-//		std::cout << "\n";
-//		ompl::base::SafetyCost final = safe_multi_opt_->safeCombineCosts(costToCome, costToGo);
-//		std::cout << "final cost : ";
-//		for (size_t j=0; j< final.getIndividualCostSize(); ++j)
-//		{
-//			std::cout << final.getIndividualCost(j).value() << "; ";
-//		}
-//		std::cout << "\n";
-
-
 		return safe_multi_opt_->safeCombineCosts(costToCome, costToGo);
 	}
 	else
@@ -980,14 +736,4 @@ ompl::base::SafetyCost ompl::geometric::SafeRRTstar::costToGo(const Motion *moti
 		costToGo = safe_multi_opt_->safeCostToGo(motion->state, costToCome);
 		return safe_multi_opt_->safeCombineCosts(costToCome, costToGo);
 	}
-
-	//	base::SafetyCost costToCome;
-	//	if (shortest)
-	//		costToCome = safe_multi_opt_->safeMotionCost(startMotion_->state, motion->state); // h_s
-	//	else
-	//		costToCome = motion->cost; //d_s
-	//
-	//	const base::SafetyCost costToGo(base::goalRegionCostToGo(motion->state, pdef_->getGoal().get()).value()); // h_g
-	//	return safe_multi_opt_->safeCombineCosts(costToCome, costToGo); // h_s + h_g
 }
-

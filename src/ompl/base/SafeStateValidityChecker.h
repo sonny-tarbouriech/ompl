@@ -32,7 +32,6 @@ namespace ompl
             {
             }
 
-            //virtual bool isValid(const State *state) const = 0;
             virtual bool isValidSelf(const ompl::base::State *state) const = 0;
             virtual void getCollidingLinksFCL(std::vector<std::string> &links, std::vector<double>& colliding_joint_values, const State *state) const = 0;
             virtual void computeInitialDistDataObstacle(const State *s1, const State *s2,  std::vector<std::vector<double> >& dist_s1_obs, std::vector<std::vector<double> >& dist_s2_obs, bool fast_dist) = 0;
@@ -47,7 +46,6 @@ namespace ompl
 
 
             virtual double manipulability(const State* /*state*/) const = 0;
-            virtual double manipulability(const State* s1, const State* s2) = 0;
 
             virtual double humanAwareness(const State* /*state*/) const = 0;
 
@@ -57,35 +55,10 @@ namespace ompl
             virtual void printStatePositions(const ompl::base::State *state, std::ostream &out = std::cout) const = 0;
 
 
-            bool humanPresence() const
-            {
-            	return human_presence_;
-            }
-
-
-            size_t getNbSafetyLinks() const
-            {
-            	return nb_safety_links_;
-            }
-
-            size_t getNbObjects() const
-            {
-            	return nb_objects_;
-            }
-
-            std::vector<double> getObjectDangerFactors()
-			{
-            	return obj_danger_factor_;
-			}
-
-        protected:
-            bool human_presence_;
-
-            size_t nb_safety_links_;
-            size_t nb_objects_;
-
-            std::vector<double> obj_danger_factor_;
-
+            virtual bool humanPresence() const = 0;
+            virtual size_t getNbSafetyLinks() const = 0;
+            virtual size_t getNbObjects() const = 0;
+            virtual double getObjectDangerFactor(size_t index) = 0;
 
         };
     }

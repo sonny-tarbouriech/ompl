@@ -21,29 +21,6 @@ namespace ompl
 
     namespace geometric
     {
-
-        /**
-           @anchor gCForest
-           @par Short description
-           CForest (Coupled Forest of Random Engrafting Search Trees) is a
-           parallelization framework that is designed for single-query shortest
-           path planning algorithms. It is not a planning algorithm <em>per se</em>.
-
-           CForest is designed to be used with any random tree algorithm that operates
-           in any configuration space such that: 1) the search tree has almost sure
-           convergence to the optimal solution and 2) the configuration space obeys
-           the triangle inequality. It relies in the OptimizationObjective set for
-           the underlying planners.
-
-           See also the extensive documentation [here](CForest.html).
-
-           @par External documentation
-           M. Otte, N. Correll, C-FOREST: Parallel Shortest Path Planning With
-           Superlinear Speedup, IEEE Transactions on Robotics, Vol 20, No 3, 2013.
-           DOI: [10.1109/TRO.2013.2240176](http://dx.doi.org/10.1109/TRO.2013.2240176)<br>
-           [[PDF]](http://ieeexplore.ieee.org/ielx5/8860/6522877/06425493.pdf?tp=&amp;arnumber=6425493&amp;isnumber=6522877)
-        */
-
         /** \brief Coupled Forest of Random Engrafting Search Trees */
         class SafeCForest : public base::Planner
         {
@@ -180,6 +157,12 @@ namespace ompl
             //STa
             base::SafetyCost                            bestCost_;
             base::SafeMultiOptimizationObjective* 	    safe_multi_opt_;
+
+            /** \brief If this variable is disabled, the framework uses only standard parallelization   */
+            bool cforestEnabled_;
+
+            //STa test
+            ompl::time::point init_;
 
         };
     }

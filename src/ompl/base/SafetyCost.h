@@ -39,28 +39,7 @@ public:
     void setObjectDangerFactorImproved(double value);
     double getObjectDangerFactorImproved();
 
-//	bool& isImprovingSafety();
-//	bool& isImprovingJoint();
-//	bool& isImprovingManipulability();
-//	bool& isImprovingAwareness();
 	bool& isRoot();
-
-
-//	SafetyCost& operator=(SafetyCost other)
-//	{
-//
-//	    this->individual_cost_ = other.individual_cost_;
-//
-//		this->is_improving_safety = other.is_improving_safety;
-//		this->is_improving_joint = other.is_improving_joint;
-//		this->is_improving_manipulability = other.is_improving_manipulability;
-//		this->is_improving_awareness = other.is_improving_awareness;
-//		this->collision_world_ = other.collision_world_;
-//		this->object_danger_factor_ = other.object_danger_factor_;
-//
-//		return *this;
-//	}
-
 
 private:
 
@@ -68,10 +47,6 @@ private:
 	std::vector<bool> is_improving_cost_;
 	std::vector<Cost> individual_cost_improved_;
 
-//	bool is_improving_safety;
-//	bool is_improving_joint;
-//	bool is_improving_manipulability;
-//	bool is_improving_awareness;
 	bool is_root_;
 	bool collision_world_;
 
@@ -81,10 +56,6 @@ private:
 };
 
 std::ostream& operator<<(std::ostream& stream, SafetyCost c);
-
-
-
-
 
 
 }
