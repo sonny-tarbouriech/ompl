@@ -80,6 +80,7 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCostToCom
 
 		c.addCost(individual_cost);
 	}
+	c.setObjectDangerFactor(safe_state_cost.getObjectDangerFactor());
 	return c;
 }
 
@@ -100,6 +101,7 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCostToGo(
 
 		c.addCost(individual_cost);
 	}
+	c.setObjectDangerFactor(safe_state_cost.getObjectDangerFactor());
 	return c;
 }
 
@@ -478,8 +480,6 @@ ompl::base::SafetyCost ompl::base::SafeMultiOptimizationObjective::safeCombineCo
             }
         }
 	}
-
-
 	return c;
 }
 

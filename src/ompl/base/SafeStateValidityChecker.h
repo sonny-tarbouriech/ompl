@@ -58,7 +58,7 @@ namespace ompl
             virtual bool humanPresence() const = 0;
             virtual size_t getNbSafetyLinks() const = 0;
             virtual size_t getNbObjects() const = 0;
-            virtual double getObjectDangerFactor(size_t index) = 0;
+            virtual double getObjectDangerFactor(size_t index) const = 0;
 
         };
     }

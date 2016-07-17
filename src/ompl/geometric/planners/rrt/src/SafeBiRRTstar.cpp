@@ -70,10 +70,15 @@ heuristicRejectionEnabled_(true),
 anytimeEnabled_(true),
 fast_dist_(true),
 travel_dist_limit_(0.01),
+valid_segment_factor_(1),
 iterations_(0),
 bestCost_(base::SafetyCost()),
 treeConnectionIndex_(0)
 {
+	rewireTest_ = 0;
+	statesGenerated_ = 0;
+	statesPruned_ = 0;
+
     specs_.approximateSolutions = true;
     specs_.optimizingPaths = true;
     specs_.canReportIntermediateSolutions = true;
@@ -872,9 +877,8 @@ bool ompl::geometric::SafeBiRRTstar::connectTrees(Motion* nmotion, TreeData& tre
                 bestCost_ = tc->wholeMotionCost;
                 bestIndex_ = tc->index;
                 checkForSolution_ = true;
+                return true;
             }
-
-            return true;
         }
     }
     return false;
